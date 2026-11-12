@@ -64,11 +64,20 @@ func NewObjView(a *App, c *Conn, owner, name, typ, title string) *ObjView {
 		if d.Text {
 			tv := tview.NewTextView().SetScrollable(true).SetWrap(false)
 			tv.SetInputCapture(o.keys)
+			a.SetContext(tv, o.ctxFor(nil))
+			a.mouseText(tv)
 			o.texts[i] = tv
 			p = tv
 		} else {
 			g := NewGrid(a)
 			g.Keys = o.keys
+			a.SetContext(g.Table, o.ctxFor(g))
+			a.mouseTable(g.Table, func() {
+				if i := g.Selected(); i >= 0 {
+					_, col := g.Table.GetSelection()
+					g.showCell(i, col)
+				}
+			})
 			if d.Data {
 				g.Source = catalog.Q2(owner, name)
 			}
@@ -340,5 +349,45 @@ func (o *ObjView) dataKey(k tcell.Key) {
 			vals = append(vals, "NULL")
 		}
 		dml(L("Nova linha", "New row"), fmt.Sprintf("INSERT INTO %s (%s)\nVALUES (%s);\nCOMMIT;", tbl, strings.Join(cols, ", "), strings.Join(vals, ", ")))
+	}
+}
+
+// ctxFor: clique direito no visualizador = ações do objeto (+ edição de dados e grade).
+func (o *ObjView) ctxFor(g *Grid) ctxProvider {
+	return func() []menuItem {
+		var items []menuItem
+		d := o.details[o.cur]
+		if d.Data && o.typ == "TABLE" {
+			items = append(items,
+				item(L("Editar célula", "Edit cell"), "Ctrl+E", func() { o.dataKey(tcell.KeyCtrlE) }),
+				item(L("Nova linha", "Insert row"), "Ctrl+N", func() { o.dataKey(tcell.KeyCtrlN) }),
+				item(L("Apagar linha", "Delete row"), "Ctrl+D", func() { o.dataKey(tcell.KeyCtrlD) }),
+				item(L("Filtro WHERE…", "WHERE filter…"), "Ctrl+F", func() { o.dataKey(tcell.KeyCtrlF) }),
+				sep())
+		}
+		if g != nil {
+			items = append(items, g.ctxItems()...)
+			items = append(items, sep())
+		} else if t, ok := o.texts[o.cur]; ok {
+			txt := o.textOf[o.cur]
+			_ = t
+			items = append(items, item(L("Copiar tudo", "Copy all"), "y", func() { Copy(txt); o.a.Msg(L("Texto copiado.", "Text copied.")) }), sep())
+		}
+		items = append(items,
+			item(L("Atualizar", "Refresh"), "F5", func() { delete(o.textOf, o.cur); o.load(o.cur) }),
+			item(L("Mostrar DDL", "Show DDL"), "D", func() {
+				o.a.openText(o.c, "DDL "+o.name, catalog.DDLSetup()+"\n/\n"+catalog.DDLQuery(o.typ), []any{o.owner, o.name})
+			}), sep())
+		for _, x := range catalog.ObjectActions(o.typ) {
+			x := x
+			lbl := x.Name
+			if x.Danger {
+				lbl = "⚠ " + lbl
+			}
+			items = append(items, item(lbl, string(x.Key), func() {
+				o.a.RunAction(o.c, x, catalog.ObjRow(o.owner, o.name, o.typ), func() { o.load(o.cur) })
+			}))
+		}
+		return items
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,8 @@ import (
 	"github.com/acaciolr/ora-brabo-studio/internal/ora"
 	"github.com/acaciolr/ora-brabo-studio/internal/store"
 )
+
+var regexpTags = regexp.MustCompile(`\[[a-zA-Z#0-9:,\-]*\]`)
 
 // Version é a versão do binário (o main troca no build).
 var Version = "dev"
@@ -43,15 +46,25 @@ type Conn struct {
 type App struct {
 	tv      *tview.Application
 	root    *tview.Pages
-	header  *tview.TextView
+	menuBar *tview.TextView
 	status  *tview.TextView
-	left    *tview.Pages
-	leftBar *tview.TextView
+	left    *tview.Flex
 	connT   *tview.TreeView
 	dbaT    *tview.TreeView
 	tabs    *Tabs
 	body    *tview.Flex
-	leftOn  string // "conn" ou "dba"
+	leftOn  string // árvore com foco por último: "conn" ou "dba"
+	leftW   int    // largura do painel esquerdo (0 = escondido)
+	connH   int    // peso da árvore Conexões no painel esquerdo (DBA = 10 - connH)
+
+	menus    []*topMenu
+	menuOpen int
+	pop      *popup
+	popFocus tview.Primitive
+	ctx      map[tview.Primitive]ctxProvider
+	noSelect bool // clique simples na árvore: só seleciona
+	msgs     strings.Builder
+	clip     string
 
 	conns   []ora.ConnInfo
 	open    map[string]*Conn
@@ -75,36 +88,40 @@ func New(screen tcell.Screen) *App {
 	tview.Styles.TitleColor = tcell.ColorWhite
 	tview.Styles.GraphicsColor = tcell.NewRGBColor(90, 110, 120)
 
-	a.header = tview.NewTextView().SetDynamicColors(true)
-	a.status = tview.NewTextView().SetDynamicColors(true)
-	a.leftBar = tview.NewTextView().SetDynamicColors(true).SetRegions(true)
+	a.ctx = map[tview.Primitive]ctxProvider{}
+	a.menuBar = tview.NewTextView().SetDynamicColors(true).SetRegions(true).SetWrap(false)
+	a.menuBar.SetBackgroundColor(tcell.NewRGBColor(24, 38, 46))
+	a.status = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
+	a.status.SetBackgroundColor(tcell.NewRGBColor(24, 38, 46))
 	a.connT = tview.NewTreeView()
 	a.dbaT = tview.NewTreeView()
-	a.left = tview.NewPages()
-	a.left.AddPage("conn", a.connT, true, true)
-	a.left.AddPage("dba", a.dbaT, true, false)
-	a.leftOn = "conn"
-	a.leftBar.SetHighlightedFunc(func(added, _, _ []string) {
-		if len(added) > 0 {
-			a.showLeft(added[0])
-		}
-	})
-	leftBox := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(a.leftBar, 1, 0, false).
-		AddItem(a.left, 0, 1, true)
-	leftBox.SetBorder(true).SetBorderPadding(0, 0, 1, 0)
+	a.paneTitle(a.connT, Icon()+" "+L("Conexões", "Connections"))
+	a.paneTitle(a.dbaT, Icon()+" DBA")
+	a.leftOn, a.leftW, a.connH = "conn", 38, 5
+	a.left = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(a.connT, 0, a.connH, true).
+		AddItem(a.dbaT, 0, 10-a.connH, false)
 	a.tabs = NewTabs(a)
-
 	a.body = tview.NewFlex().
-		AddItem(leftBox, 38, 0, true).
+		AddItem(a.left, a.leftW, 0, true).
 		AddItem(a.tabs, 0, 1, false)
 	main := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(a.header, 1, 0, false).
+		AddItem(a.menuBar, 1, 0, false).
 		AddItem(a.body, 0, 1, true).
 		AddItem(a.status, 1, 0, false)
 	a.root = tview.NewPages().AddPage("main", main, true, true)
 	a.tv.SetRoot(a.root, true).SetFocus(a.connT)
 	a.tv.SetInputCapture(a.keys)
+	a.tv.SetMouseCapture(a.mouse)
+	a.buildMenus()
+	a.mouseTree(a.connT)
+	a.mouseTree(a.dbaT)
+	a.status.SetHighlightedFunc(func(added, _, _ []string) {
+		if len(added) > 0 {
+			a.status.Highlight()
+			a.showMessages()
+		}
+	})
 
 	cs, err := store.LoadConns()
 	if err != nil {
@@ -113,12 +130,10 @@ func New(screen tcell.Screen) *App {
 	a.conns = cs
 	a.buildConnTree()
 	a.buildDBATree()
-	a.drawLeftBar()
 	a.drawHeader()
 	a.hint()
-	if len(cs) == 0 {
-		a.tabs.Add(NewWelcome(a))
-	}
+	// como no goSSMS: o diálogo de conexão abre na entrada
+	a.ConnectDialog("")
 	return a
 }
 
@@ -131,6 +146,8 @@ func (a *App) Run() error {
 				a.drawHeader()
 				if !a.msgTime.IsZero() && time.Since(a.msgTime) > 8*time.Second {
 					a.msgTime = time.Time{}
+				}
+				if a.msgTime.IsZero() {
 					a.hint()
 				}
 			})
@@ -151,7 +168,38 @@ func Icon() string {
 	return "[#2EBD59::b]⛁[-::-]"
 }
 
-func (a *App) drawHeader() {
+// paneTitle dá título ao painel e o destaca quando tem foco (como no goSSMS).
+func (a *App) paneTitle(t *tview.TreeView, title string) {
+	t.SetBorder(true).SetTitle(" " + title + " ").SetTitleAlign(tview.AlignLeft)
+	t.SetGraphicsColor(tcell.NewRGBColor(70, 90, 100))
+	// seleção: a cor do nó vira o fundo e o texto fica escuro (legível em qualquer nó)
+	t.SetDrawFunc(func(_ tcell.Screen, x, y, w, h int) (int, int, int, int) {
+		if r := t.GetRoot(); r != nil {
+			r.Walk(func(n, _ *tview.TreeNode) bool {
+				n.SetSelectedTextStyle(tcell.StyleDefault.Background(n.GetColor()).Foreground(colModal).Bold(true))
+				return true
+			})
+		}
+		return x + 1, y + 1, w - 2, h - 2
+	})
+	t.SetFocusFunc(func() {
+		t.SetBorderColor(tcell.NewRGBColor(46, 189, 89)).SetTitleColor(tcell.NewRGBColor(46, 189, 89))
+		if t == a.connT {
+			a.leftOn = "conn"
+		} else {
+			a.leftOn = "dba"
+		}
+		a.hint()
+	})
+	t.SetBlurFunc(func() {
+		t.SetBorderColor(tview.Styles.BorderColor).SetTitleColor(tview.Styles.TitleColor)
+	})
+}
+
+// drawHeader atualiza o lado direito da barra de status (conexão e hora).
+func (a *App) drawHeader() { a.hint() }
+
+func (a *App) right() string {
 	cur := ""
 	if t := a.tabs.Current(); t != nil {
 		if c := t.Conn(); c != nil {
@@ -159,27 +207,19 @@ func (a *App) drawHeader() {
 			if c.Info.Color != "" {
 				cor = "[" + c.Info.Color + "]"
 			}
-			cur = "  " + cor + tview.Escape(c.Info.Name) + "[-] [gray]" + tview.Escape(c.User+" · "+c.ConName+" · "+c.Version) + "[-]"
+			cur = cor + "⛁ " + tview.Escape(c.Info.Name) + "[-] [gray]" + tview.Escape(c.User+" · "+c.ConName+" · "+c.Version) + "[-]  "
 		}
 	}
-	a.header.SetText(fmt.Sprintf(" %s [::b]ORA BRABO[::-] [#9fd3c7]Studio[-]%s[gray]%s %s[-]",
-		Icon(), cur, strings.Repeat(" ", 2), time.Now().Format("15:04:05")))
+	return cur + "[gray]" + time.Now().Format("15:04") + "[-] "
 }
 
-func (a *App) drawLeftBar() {
-	c, d := "", ""
-	if a.leftOn == "conn" {
-		c = "[black:#9fd3c7]"
-	} else {
-		d = "[black:#9fd3c7]"
+func (a *App) showLeft(name string) { a.focusTree(name) }
+
+// focusTree põe o foco numa das árvores da esquerda.
+func (a *App) focusTree(name string) {
+	if a.leftW == 0 {
+		a.toggleLeft()
 	}
-	a.leftBar.SetText(fmt.Sprintf(`["conn"]%s %s [-:-:-][""] ["dba"]%s DBA [-:-:-][""]`, c, L("Conexões", "Connections"), d))
-}
-
-func (a *App) showLeft(name string) {
-	a.leftOn = name
-	a.left.SwitchToPage(name)
-	a.drawLeftBar()
 	if name == "dba" {
 		a.tv.SetFocus(a.dbaT)
 	} else {
@@ -187,11 +227,53 @@ func (a *App) showLeft(name string) {
 	}
 }
 
+func (a *App) toggleLeft() {
+	if a.leftW == 0 {
+		a.leftW = 38
+	} else {
+		a.leftW = 0
+	}
+	a.body.ResizeItem(a.left, a.leftW, 0)
+}
+
+func (a *App) resizeLeft(dw, dh int) {
+	if dw != 0 && a.leftW > 0 {
+		a.leftW = min(max(a.leftW+dw, 20), 90)
+		a.body.ResizeItem(a.left, a.leftW, 0)
+	}
+	if dh != 0 {
+		a.connH = min(max(a.connH+dh, 1), 9)
+		a.left.ResizeItem(a.connT, 0, a.connH).ResizeItem(a.dbaT, 0, 10-a.connH)
+	}
+}
+
 // Msg mostra uma mensagem na linha de baixo por alguns segundos.
 func (a *App) Msg(s string) {
-	a.status.SetText(" " + s)
 	a.msgTime = time.Now()
+	fmt.Fprintf(&a.msgs, "%s  %s\n", a.msgTime.Format("15:04:05"), s)
+	a.setStatus(s)
 }
+
+func (a *App) setStatus(s string) {
+	_, _, w, _ := a.status.GetRect()
+	r := a.right()
+	pad := w - tview.TaggedStringWidth(s) - tview.TaggedStringWidth(r) - 2
+	if pad < 1 {
+		pad = 1
+	}
+	a.status.SetText(`[""] ` + s + strings.Repeat(" ", pad) + r)
+}
+
+// showMessages mostra o histórico de mensagens (clique na barra de status).
+func (a *App) showMessages() {
+	t := a.msgs.String()
+	if t == "" {
+		t = L("(sem mensagens)", "(no messages)")
+	}
+	a.TextBox(L("Mensagens", "Messages"), stripTags(t))
+}
+
+func stripTags(s string) string { return regexpTags.ReplaceAllString(s, "") }
 
 // Errf mostra um erro.
 func (a *App) Errf(format string, args ...any) {
@@ -199,39 +281,67 @@ func (a *App) Errf(format string, args ...any) {
 }
 
 func (a *App) hint() {
-	h := L("[yellow]F1[-] ajuda  [yellow]F2[-] Conexões/DBA  [yellow]F3[-] foco  [yellow]Ctrl+N[-] worksheet  [yellow]F5[-] script  [yellow]F9[-] executar  [yellow]F10[-] plano  [yellow]F6[-] autotrace  [yellow]F11[-] commit  [yellow]F12[-] rollback  [yellow]Ctrl+W[-] fecha aba  [yellow]Ctrl+Q[-] sair",
-		"[yellow]F1[-] help  [yellow]F2[-] Connections/DBA  [yellow]F3[-] focus  [yellow]Ctrl+N[-] worksheet  [yellow]F5[-] script  [yellow]F9[-] run  [yellow]F10[-] plan  [yellow]F6[-] autotrace  [yellow]F11[-] commit  [yellow]F12[-] rollback  [yellow]Ctrl+W[-] close tab  [yellow]Ctrl+Q[-] quit")
-	if t := a.tabs.Current(); t != nil {
-		if s := t.Hint(); s != "" {
-			h = s
-		}
+	if !a.msgTime.IsZero() && time.Since(a.msgTime) < 8*time.Second {
+		return
 	}
-	a.status.SetText(" " + h)
+	h := L("Pronto  [gray]│[-]  [yellow]F1[-] Ajuda  [gray]│[-]  [yellow]F10[-] Menu  [gray]│[-]  [yellow]Ctrl+N[-] Worksheet  [gray]│[-]  [yellow]F9[-] Conectar  [gray]│[-]  [yellow]Ctrl+Q[-] Sair",
+		"Ready  [gray]│[-]  [yellow]F1[-] Help  [gray]│[-]  [yellow]F10[-] Menu  [gray]│[-]  [yellow]Ctrl+N[-] Worksheet  [gray]│[-]  [yellow]F9[-] Connect  [gray]│[-]  [yellow]Ctrl+Q[-] Quit")
+	f := a.tv.GetFocus()
+	if f != a.connT && f != a.dbaT {
+		if t := a.tabs.Current(); t != nil {
+			if s := t.Hint(); s != "" {
+				h = s
+			}
+		}
+	} else {
+		h = L("[yellow]Enter[-]/duplo clique abre  [gray]│[-]  [yellow]clique direito[-]/Shift+F10 menu  [gray]│[-]  [yellow]F5[-] atualiza  [gray]│[-]  [yellow]Ctrl+←→↑↓[-] tamanho  [gray]│[-]  [yellow]F10[-] Menu",
+			"[yellow]Enter[-]/double-click opens  [gray]│[-]  [yellow]right-click[-]/Shift+F10 menu  [gray]│[-]  [yellow]F5[-] refresh  [gray]│[-]  [yellow]Ctrl+←→↑↓[-] size  [gray]│[-]  [yellow]F10[-] Menu")
+	}
+	a.setStatus(h)
 }
 
 // keys trata os atalhos globais.
 func (a *App) keys(ev *tcell.EventKey) *tcell.EventKey {
+	// Ctrl+C copia (o padrão do tview seria fechar o programa)
+	if ev.Key() == tcell.KeyCtrlC {
+		a.copyFocused()
+		return nil
+	}
 	if a.modals > 0 {
 		return ev
 	}
+	f := a.tv.GetFocus()
+	inTree := f == a.connT || f == a.dbaT
+	ctrl := ev.Modifiers()&tcell.ModCtrl != 0
 	switch ev.Key() {
 	case tcell.KeyF1:
-		if i := a.tabs.Find(L("Ajuda", "Help"), nil); i >= 0 {
-			a.tabs.Select(i)
-		} else {
-			a.tabs.Add(NewHelp(a))
+		a.openHelp()
+		return nil
+	case tcell.KeyF10:
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			a.ContextMenu(f, -1, -1)
+			return nil
 		}
+		if a.curWorksheet() != nil && !inTree && a.curWorksheet().ed.HasFocus() {
+			return ev // F10 na worksheet = plano (como no SQL Developer)
+		}
+		a.openMenu(0)
 		return nil
 	case tcell.KeyF2:
-		if a.leftOn == "conn" {
-			a.showLeft("dba")
+		if a.leftOn == "conn" && inTree {
+			a.focusTree("dba")
 		} else {
-			a.showLeft("conn")
+			a.focusTree("conn")
 		}
 		return nil
 	case tcell.KeyF3:
 		a.cycleFocus()
 		return nil
+	case tcell.KeyF9:
+		if a.curWorksheet() == nil || inTree {
+			a.ConnectDialog(a.currentConnName())
+			return nil
+		}
 	case tcell.KeyCtrlN:
 		a.newWorksheet(a.currentConnName())
 		return nil
@@ -241,33 +351,83 @@ func (a *App) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyCtrlQ:
 		a.quit()
 		return nil
+	case tcell.KeyCtrlSpace:
+		if inTree {
+			a.ContextMenu(f, -1, -1)
+			return nil
+		}
 	case tcell.KeyPgDn:
-		if ev.Modifiers()&tcell.ModCtrl != 0 {
+		if ctrl {
 			a.tabs.Next(1)
 			return nil
 		}
 	case tcell.KeyPgUp:
-		if ev.Modifiers()&tcell.ModCtrl != 0 {
+		if ctrl {
 			a.tabs.Next(-1)
 			return nil
 		}
-	case tcell.KeyRight:
-		if ev.Modifiers()&tcell.ModAlt != 0 {
-			a.tabs.Next(1)
+	case tcell.KeyRight, tcell.KeyLeft, tcell.KeyUp, tcell.KeyDown:
+		d := map[tcell.Key]int{tcell.KeyRight: 1, tcell.KeyLeft: -1, tcell.KeyUp: -1, tcell.KeyDown: 1}[ev.Key()]
+		if ev.Modifiers()&tcell.ModAlt != 0 && (ev.Key() == tcell.KeyRight || ev.Key() == tcell.KeyLeft) {
+			a.tabs.Next(d)
 			return nil
 		}
-	case tcell.KeyLeft:
-		if ev.Modifiers()&tcell.ModAlt != 0 {
-			a.tabs.Next(-1)
+		if ctrl && inTree {
+			if ev.Key() == tcell.KeyRight || ev.Key() == tcell.KeyLeft {
+				a.resizeLeft(2*d, 0)
+			} else {
+				a.resizeLeft(0, d)
+			}
 			return nil
 		}
 	case tcell.KeyRune:
-		if ev.Modifiers()&tcell.ModAlt != 0 && ev.Rune() >= '1' && ev.Rune() <= '9' {
-			a.tabs.Select(int(ev.Rune() - '1'))
-			return nil
+		if ev.Modifiers()&tcell.ModAlt != 0 {
+			switch r := ev.Rune(); {
+			case r >= '1' && r <= '9':
+				a.tabs.Select(int(r - '1'))
+				return nil
+			case r == 'o' || r == 'O':
+				if c := a.Connected(a.currentConnName()); c != nil {
+					a.findObject(c)
+				}
+				return nil
+			}
 		}
 	}
 	return ev
+}
+
+// copyFocused faz o Ctrl+C do primitivo com foco.
+func (a *App) copyFocused() {
+	f := a.tv.GetFocus()
+	set := func(p tview.Primitive) { a.tv.SetFocus(p) }
+	switch x := f.(type) {
+	case *tview.TextArea:
+		x.InputHandler()(tcell.NewEventKey(tcell.KeyCtrlQ, 0, tcell.ModNone), set)
+	case *tview.InputField:
+		Copy(x.GetText())
+	default:
+		if f != nil {
+			f.InputHandler()(tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone), set)
+		}
+	}
+}
+
+// mouse: clique fora de um menu aberto fecha o menu.
+func (a *App) mouse(ev *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+	if a.pop != nil && (action == tview.MouseLeftDown || action == tview.MouseRightDown) {
+		x, y := ev.Position()
+		p := a.pop
+		if x < p.x || x >= p.x+p.w || y < p.y || y >= p.y+p.h {
+			_, my, _, _ := a.menuBar.GetRect()
+			a.closePopup()
+			if y == my && action == tview.MouseLeftDown {
+				return ev, action // clicou em outro menu da barra
+			}
+			return nil, tview.MouseConsumed
+		}
+	}
+	return ev, action
 }
 
 func (a *App) cycleFocus() {
@@ -281,10 +441,25 @@ func (a *App) cycleFocus() {
 	if t := a.tabs.Current(); t != nil && t.FocusPart(1) {
 		return
 	}
-	if a.leftOn == "dba" {
-		a.tv.SetFocus(a.dbaT)
-	} else {
-		a.tv.SetFocus(a.connT)
+	a.focusTree(a.leftOn)
+}
+
+func (a *App) openHelp() {
+	if i := a.tabs.Find(L("Ajuda", "Help"), nil); i >= 0 {
+		a.tabs.Select(i)
+		return
+	}
+	a.tabs.Add(NewHelp(a))
+}
+
+func (a *App) closeAllTabs() {
+	for _, t := range a.tabs.All() {
+		if w, ok := t.(*Worksheet); ok && w.sess != nil && w.sess.Pending {
+			a.tabs.Select(a.tabs.Find(w.Title(), w.c))
+			a.tabs.CloseCurrent()
+			return
+		}
+		a.tabs.Remove(t)
 	}
 }
 
@@ -348,6 +523,11 @@ func solid(p tview.Primitive) {
 func (a *App) Modal(name string, p tview.Primitive, w, h int) {
 	solid(p)
 	grid := tview.NewGrid().SetColumns(0, w, 0).SetRows(0, h, 0).AddItem(p, 1, 1, 1, 1, 0, 0, true)
+	// o tamanho cabe na tela de agora (na entrada a tela ainda não tem tamanho)
+	grid.SetDrawFunc(func(_ tcell.Screen, x, y, sw, sh int) (int, int, int, int) {
+		grid.SetColumns(0, min(w, max(sw-2, 10)), 0).SetRows(0, min(h, max(sh-2, 5)), 0)
+		return x, y, sw, sh
+	})
 	a.root.AddPage(name, grid, true, true)
 	a.modals++
 	a.tv.SetFocus(p)
@@ -363,7 +543,7 @@ func (a *App) CloseModal(name string) {
 		if t := a.tabs.Current(); t != nil {
 			t.FocusPart(0)
 		} else {
-			a.showLeft(a.leftOn)
+			a.focusTree(a.leftOn)
 		}
 	}
 }
@@ -412,8 +592,11 @@ func (a *App) TextBox(title, text string) {
 	a.Modal("textbox", tv, 100, 30)
 }
 
+var clipboard string
+
 // Copy manda o texto para a área de transferência do terminal (OSC 52).
 func Copy(s string) {
+	clipboard = s
 	enc := b64(s)
 	fmt.Fprintf(os.Stdout, "\x1b]52;c;%s\x07", enc)
 }

@@ -54,9 +54,57 @@ func NewListView(a *App, c *Conn, v *catalog.View) *ListView {
 		}
 		a.TextBox(L("Registro", "Record"), l.grid.recordText(i))
 	}
+	a.SetContext(l.grid.Table, l.ctxItems)
+	a.SetContext(l.text, l.ctxItems)
+	a.mouseTable(l.grid.Table, func() {
+		if i := l.grid.Selected(); i >= 0 {
+			l.grid.OnEnter(i, nil)
+		}
+	})
+	a.mouseText(l.text)
 	l.drawActs()
 	l.Load()
 	return l
+}
+
+// ctxItems: clique direito numa tela DBA = as ações da tela + atualizar/exportar.
+func (l *ListView) ctxItems() []menuItem {
+	row := l.row()
+	var items []menuItem
+	for _, x := range l.v.Actions {
+		x := x
+		lbl := x.Name
+		if x.Danger {
+			lbl = "⚠ " + lbl
+		}
+		if x.Drill != nil {
+			lbl += " ›"
+		}
+		items = append(items, itemIf(!x.NeedRow || row != nil, lbl, string(x.Key), func() {
+			l.a.RunAction(l.c, x, l.row(), func() { l.Load() })
+		}))
+	}
+	if len(items) > 0 {
+		items = append(items, sep())
+	}
+	auto := L("Ligar atualização automática", "Auto refresh on")
+	if l.auto {
+		auto = L("Desligar atualização automática", "Auto refresh off")
+	}
+	items = append(items,
+		item(L("Atualizar", "Refresh"), "F5", l.Load),
+		item(auto, "F4", l.toggleAuto),
+		itemIf(row != nil, L("Registro (vertical)", "Single record view"), "Enter", func() {
+			if i := l.grid.Selected(); i >= 0 {
+				l.grid.OnEnter(i, nil)
+			}
+		}),
+		item(L("Copiar tudo", "Copy all"), "Ctrl+Y", func() { Copy(l.grid.Export("tsv")); l.a.Msg(L("Lista copiada.", "List copied.")) }),
+		item(L("Exportar…", "Export…"), "Ctrl+X", l.grid.exportDialog),
+		item(L("Filtrar…", "Filter…"), "/", l.grid.askFilter),
+		item(L("Ajuda da tela", "Screen help"), "?", l.help),
+	)
+	return items
 }
 
 func (l *ListView) actsHeight() int {

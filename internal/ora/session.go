@@ -159,10 +159,15 @@ func (s *Session) Run(st Stmt, binds []any) Result {
 	r := s.run(ctx, st, binds)
 	r.Stmt = st
 	r.Elapsed = time.Since(t0)
-	if s.ServerOut && st.Kind != KindClient {
+	if s.ServerOut && (st.Kind != KindClient || isExec(st.Text)) {
 		r.Output = s.readOutput(context.Background())
 	}
 	return r
+}
+
+func isExec(text string) bool {
+	f := strings.Fields(text)
+	return len(f) > 0 && (strings.EqualFold(f[0], "EXEC") || strings.EqualFold(f[0], "EXECUTE"))
 }
 
 func (s *Session) run(ctx context.Context, st Stmt, binds []any) Result {
@@ -269,13 +274,13 @@ func (s *Session) afterPLSQL(ctx context.Context, e execer, text string) Result 
 		}
 	}
 	if len(lines) == 0 {
-		return Result{Msg: fmt.Sprintf(L("%s %s compilado.", "%s %s compiled."), titleCase(typ), name)}
+		return Result{Msg: fmt.Sprintf(L("%s %s %s.", "%s %s compiled."), noun(typ), name, verbPT("compilado", typ))}
 	}
 	r := Result{Text: strings.Join(lines, "\n")}
 	if nerr > 0 {
-		r.Err = fmt.Errorf(L("%s %s compilado com erros (%d).", "%s %s compiled with errors (%d)."), titleCase(typ), name, nerr)
+		r.Err = fmt.Errorf(L("%s %s %s com erros (%d).", "%s %s compiled with errors (%d)."), noun(typ), name, verbPT("compilado", typ), nerr)
 	} else {
-		r.Msg = fmt.Sprintf(L("%s %s compilado com avisos.", "%s %s compiled with warnings."), titleCase(typ), name)
+		r.Msg = fmt.Sprintf(L("%s %s %s com avisos.", "%s %s compiled with warnings."), noun(typ), name, verbPT("compilado", typ))
 	}
 	return r
 }
@@ -310,9 +315,9 @@ func ddlMessage(text string) string {
 	}
 	verb := strings.ToLower(m[1])
 	obj := strings.ToUpper(m[4])
-	pt := map[string]string{"create": "criado(a)", "alter": "alterado(a)", "drop": "removido(a)",
-		"truncate": "truncado(a)", "rename": "renomeado(a)", "comment": "comentado(a)", "analyze": "analisado(a)",
-		"purge": "expurgado(a)", "flashback": "recuperado(a)"}
+	pt := map[string]string{"create": "criado", "alter": "alterado", "drop": "removido",
+		"truncate": "truncado", "rename": "renomeado", "comment": "comentado", "analyze": "analisado",
+		"purge": "expurgado", "flashback": "recuperado"}
 	en := map[string]string{"create": "created", "alter": "altered", "drop": "dropped", "truncate": "truncated",
 		"rename": "renamed", "comment": "commented", "analyze": "analyzed", "purge": "purged", "flashback": "complete"}
 	switch verb {
@@ -326,7 +331,39 @@ func ddlMessage(text string) string {
 	if obj == "" {
 		return L("Comando executado.", "Statement executed.")
 	}
-	return titleCase(obj) + " " + L(pt[verb], en[verb]) + "."
+	return noun(obj) + " " + L(verbPT(pt[verb], obj), en[verb]) + "."
+}
+
+// nomes dos objetos em PT e gênero (true = feminino)
+var nounsPT = map[string]struct {
+	n string
+	f bool
+}{
+	"TABLE": {"Tabela", true}, "VIEW": {"View", true}, "INDEX": {"Índice", false}, "PROCEDURE": {"Procedure", true},
+	"FUNCTION": {"Função", true}, "PACKAGE": {"Package", false}, "PACKAGE BODY": {"Package body", false}, "TRIGGER": {"Gatilho", false},
+	"SEQUENCE": {"Sequência", true}, "SYNONYM": {"Sinônimo", false}, "USER": {"Usuário", false}, "ROLE": {"Role", true},
+	"TABLESPACE": {"Tablespace", false}, "TYPE": {"Tipo", false}, "TYPE BODY": {"Type body", false}, "DATABASE": {"Banco", false},
+	"SYSTEM": {"Sistema", false}, "SESSION": {"Sessão", true}, "PROFILE": {"Profile", false}, "DIRECTORY": {"Diretório", false},
+	"MATERIALIZED": {"View materializada", true}, "PLUGGABLE": {"PDB", false}, "CLUSTER": {"Cluster", false},
+	"CONTEXT": {"Contexto", false}, "LIBRARY": {"Biblioteca", true}, "JAVA": {"Java", false}, "SCHEMA": {"Schema", false},
+}
+
+func noun(obj string) string {
+	if L("pt", "en") == "en" {
+		return titleCase(obj)
+	}
+	if x, ok := nounsPT[strings.ToUpper(obj)]; ok {
+		return x.n
+	}
+	return titleCase(obj)
+}
+
+// verbPT põe o particípio no gênero do objeto ("criado" → "criada").
+func verbPT(v, obj string) string {
+	if x, ok := nounsPT[strings.ToUpper(obj)]; ok && x.f && strings.HasSuffix(v, "o") {
+		return v[:len(v)-1] + "a"
+	}
+	return v
 }
 
 // query executa um SELECT e traz até limit linhas.

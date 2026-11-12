@@ -60,7 +60,7 @@ func start(t *testing.T) *harness {
 	s.SetSize(160, 45)
 	h := &harness{t: t, s: s, a: New(s), err: make(chan error, 1)}
 	go func() { h.err <- h.a.tv.Run() }()
-	h.wait("ORA BRABO")
+	h.wait("Conectar ao banco Oracle")
 	s.SetSize(160, 45) // o Run reinicia a tela em 80x25
 	h.sync()
 	return h
@@ -108,18 +108,43 @@ func (h *harness) stop() {
 func TestUIFlow(t *testing.T) {
 	h := start(t)
 	defer h.stop()
-	scr := h.wait("Bem-vindo")
-	if !strings.Contains(strings.SplitN(scr, "\n", 2)[0], "⛁") {
-		t.Fatalf("ícone verde não está no canto superior esquerdo:\n%s", strings.SplitN(scr, "\n", 2)[0])
+	// na entrada: menus em cima, diálogo Conectar aberto, painéis Conexões e DBA
+	scr := h.wait("Nova conexão ")
+	top := strings.SplitN(scr, "\n", 2)[0]
+	for _, m := range []string{"Arquivo", "Editar", "Exibir", "Ferramentas", "Ajuda", "⛁"} {
+		if !strings.Contains(top, m) {
+			t.Fatalf("barra de menus sem %q:\n%s", m, top)
+		}
 	}
-	h.wait("+ Nova conexão")
+	if !strings.Contains(scr, "Testar") || !strings.Contains(scr, "Cancelar") {
+		t.Fatalf("diálogo sem botões:\n%s", scr)
+	}
+	h.key(tcell.KeyEscape, 0, 0)
+	scr = h.wait("+ Nova conexão")
+	if !strings.Contains(scr, "⛁ Conexões") || !strings.Contains(scr, "⛁ DBA") {
+		t.Fatalf("painéis Conexões/DBA não estão na tela:\n%s", scr)
+	}
+	if h.a.modals != 0 {
+		t.Fatalf("Esc não fechou o diálogo: %d", h.a.modals)
+	}
+
+	// F10 abre o menu Arquivo; → vai para Editar; Esc fecha
+	h.key(tcell.KeyF10, 0, 0)
+	h.wait("Nova worksheet")
+	h.key(tcell.KeyRight, 0, 0)
+	h.wait("Desfazer")
+	h.key(tcell.KeyEscape, 0, 0)
+	h.sync()
+	if h.a.root.HasPage("popupPage") {
+		t.Fatal("menu não fechou")
+	}
 
 	// F1 ajuda; F1 de novo não duplica a aba
 	h.key(tcell.KeyF1, 0, 0)
 	h.wait("Navegador de objetos")
 	h.key(tcell.KeyF1, 0, 0)
-	if n := len(h.a.tabs.All()); n != 2 {
-		t.Fatalf("esperava 2 abas (boas-vindas + ajuda), tem %d", n)
+	if n := len(h.a.tabs.All()); n != 1 {
+		t.Fatalf("esperava 1 aba (ajuda), tem %d", n)
 	}
 	h.key(tcell.KeyCtrlW, 0, 0)
 
@@ -128,8 +153,8 @@ func TestUIFlow(t *testing.T) {
 	h.wait("crie uma conexão")
 	h.key(tcell.KeyF2, 0, 0)
 
-	// nova conexão pelo formulário
-	h.a.tv.QueueUpdateDraw(func() { h.a.connForm(nil) })
+	// nova conexão pelo diálogo Conectar (F9)
+	h.key(tcell.KeyF9, 0, 0)
 	h.wait("Nova conexão ")
 	h.typeText("lab")
 	h.key(tcell.KeyTab, 0, 0)
@@ -159,17 +184,19 @@ func TestUIFlow(t *testing.T) {
 		t.Fatal("formulário não está na frente")
 	}
 	// Enter no último campo não salva; aperta os botões com Tab
-	for i := 0; i < 8; i++ { // SID, TNS, wallet, SSL, RMAN, cor, Testar → Salvar
+	for i := 0; i < 7; i++ { // SID, wallet, SSL, RMAN, cor, Testar → Salvar (TNS fica cinza no Básico)
 		h.key(tcell.KeyTab, 0, 0)
 	}
 	h.key(tcell.KeyEnter, 0, 0) // Salvar
-	scr = h.wait("Conexão salva")
-	if !strings.Contains(scr, "○ lab") {
+	scr = h.wait("Salva: lab")
+	if !strings.Contains(scr, "⛁ lab") {
 		t.Fatalf("conexão não apareceu na árvore:\n%s", scr)
 	}
 	if len(h.a.conns) != 1 || h.a.conns[0].Host != "127.0.0.1" || h.a.conns[0].Service != "FREEPDB1" || h.a.conns[0].User != "system" {
 		t.Fatalf("conexão salva errada: %+v", h.a.conns)
 	}
+
+	h.key(tcell.KeyEscape, 0, 0) // fecha o diálogo
 
 	// Ctrl+Q pergunta antes de sair
 	h.key(tcell.KeyCtrlQ, 0, 0)
@@ -194,15 +221,20 @@ func TestEnglish(t *testing.T) {
 	go func() { errc <- a.tv.Run() }()
 	h := &harness{t: t, s: s, a: a, err: errc}
 	defer h.stop()
-	h.wait("ORA BRABO")
+	h.wait("Connect to Oracle Database")
 	s.SetSize(160, 45)
-	h.wait("Welcome")
-	h.wait("+ New connection")
+	h.wait("New connection ")
+	h.key(tcell.KeyEscape, 0, 0)
+	scr := h.wait("+ New connection")
+	if !strings.Contains(strings.SplitN(scr, "\n", 2)[0], "File") {
+		t.Fatalf("menus não estão em inglês:\n%s", scr)
+	}
 }
 
 func TestActionPreviewAndDanger(t *testing.T) {
 	h := start(t)
 	defer h.stop()
+	h.key(tcell.KeyEscape, 0, 0) // fecha o Conectar da entrada
 	c := &Conn{Info: oraInfo("lab"), User: "HR", packOK: map[string]bool{}}
 	var ren, trunc *catalog.Action
 	for _, x := range catalog.ObjectActions("TABLE") {

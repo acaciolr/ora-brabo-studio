@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -58,15 +59,18 @@ func (a *App) buildConnTree() {
 		root.AddChild(a.connNode(c.Name))
 	}
 	a.connT.SetRoot(root).SetCurrentNode(root.GetChildren()[0]).SetTopLevel(1)
-	a.connT.SetGraphicsColor(tcell.NewRGBColor(70, 90, 100))
 	a.connT.SetSelectedFunc(a.onConnSelect)
 	a.connT.SetInputCapture(a.connTreeKeys)
+	a.SetContext(a.connT, a.connCtx)
 }
 
 func connLabel(name string, open bool) string {
-	ic := "[gray]○[-]"
+	ic := "[gray]⛁[-]"
 	if open {
-		ic = "[#2EBD59]●[-]"
+		ic = "[#2EBD59]⛁[-]"
+	}
+	if os.Getenv("ORA_BRABO_ASCII") == "1" {
+		ic = map[bool]string{true: "[#2EBD59]●[-]", false: "[gray]○[-]"}[open]
 	}
 	return ic + " " + tview.Escape(name)
 }
@@ -79,12 +83,12 @@ func (a *App) connNode(name string) *tview.TreeNode {
 
 func (a *App) onConnSelect(n *tview.TreeNode) {
 	r, _ := n.GetReference().(*nodeRef)
-	if r == nil {
+	if r == nil || a.noSelect {
 		return
 	}
 	switch r.kind {
 	case nkNewConn:
-		a.connForm(nil)
+		a.ConnectDialog("")
 	case nkImport:
 		a.importSQLDev()
 	case nkConn:
@@ -218,7 +222,14 @@ func (a *App) connTreeKeys(ev *tcell.EventKey) *tcell.EventKey {
 	if n == nil {
 		return ev
 	}
+	if e := treeNav(n, ev); e == nil {
+		return nil
+	}
 	r, _ := n.GetReference().(*nodeRef)
+	if r != nil && ev.Key() == tcell.KeyF5 {
+		a.refreshNode(n, r)
+		return nil
+	}
 	if r == nil || ev.Key() != tcell.KeyRune {
 		return ev
 	}
@@ -226,8 +237,7 @@ func (a *App) connTreeKeys(ev *tcell.EventKey) *tcell.EventKey {
 	case nkConn:
 		switch ev.Rune() {
 		case 'e':
-			info, _ := a.findConn(r.conn)
-			a.connForm(&info)
+			a.ConnectDialog(r.conn)
 			return nil
 		case 'c':
 			info, _ := a.findConn(r.conn)
@@ -238,9 +248,7 @@ func (a *App) connTreeKeys(ev *tcell.EventKey) *tcell.EventKey {
 			a.Confirm(fmt.Sprintf(L("Remover a conexão %q?", "Delete connection %q?"), r.conn), func() { a.deleteConn(r.conn) })
 			return nil
 		case 'd':
-			a.Disconnect(r.conn)
-			n.SetText(connLabel(r.conn, false)).ClearChildren()
-			r.loaded = false
+			a.disconnectTree(r.conn)
 			return nil
 		case 'w':
 			a.newWorksheet(r.conn)
@@ -290,13 +298,14 @@ func (a *App) buildDBATree() {
 	if ch := root.GetChildren(); len(ch) > 0 {
 		a.dbaT.SetCurrentNode(ch[0])
 	}
-	a.dbaT.SetGraphicsColor(tcell.NewRGBColor(70, 90, 100))
 	a.dbaT.SetSelectedFunc(a.onDBASelect)
+	a.dbaT.SetInputCapture(a.dbaTreeKeys)
+	a.SetContext(a.dbaT, a.dbaCtx)
 }
 
 func (a *App) onDBASelect(n *tview.TreeNode) {
 	r, _ := n.GetReference().(*nodeRef)
-	if r == nil {
+	if r == nil || a.noSelect {
 		return
 	}
 	switch r.kind {

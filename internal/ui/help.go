@@ -1,12 +1,7 @@
-// Boas-vindas (primeira execução) e ajuda (F1). by • DBA BRABO
+// Logo e ajuda (F1). by • DBA BRABO
 package ui
 
 import (
-	"fmt"
-
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
-
 	"github.com/acaciolr/ora-brabo-studio/internal/store"
 )
 
@@ -23,13 +18,20 @@ func helpText() string {
 Cliente Oracle no terminal, leve e rápido: worksheet SQL, navegador de objetos e a aba DBA.
 
 [#9fd3c7::b]Tela[-::-]
-  Esquerda: [::b]Conexões[::-] (com o navegador de objetos) e [::b]DBA[::-]. F2 alterna; clique também funciona.
+  Em cima: [::b]barra de menus[::-] (Arquivo, Editar, Exibir, Navegar, Executar, Ferramentas, Janela, Ajuda) e a
+  barra de ferramentas (✚ ▶ ▷ ■ ⇲ ✓ ✗ ⛁). F10 abre os menus; ←/→ trocam de menu; clique também funciona.
+  Esquerda: painel [::b]Conexões[::-] (com o navegador de objetos) e, embaixo, o painel [::b]DBA[::-].
+  F2 alterna entre os painéis; Ctrl+←/→ e Ctrl+↑/↓ (no painel) mudam o tamanho; Exibir esconde/mostra o painel.
   Direita: abas (worksheets, telas DBA, objetos). Ctrl+PgUp/PgDn ou Alt+←/→ trocam; Alt+1..9 vão direto.
-  F3 passa o foco entre árvore, editor e resultado. Ctrl+W fecha a aba. Ctrl+Q sai.
+  F3 passa o foco entre painéis, editor e resultado. Ctrl+W fecha a aba. Ctrl+Q sai.
+  [::b]Clique direito[::-] (ou Shift+F10 / Ctrl+Space no painel) abre o menu de contexto do que estiver selecionado.
+  Clique seleciona; [::b]duplo clique[::-] abre. Ctrl+C copia. Embaixo, a barra de status (clique = mensagens).
 
 [#9fd3c7::b]Conexões[::-]
-  Enter conecta e abre a árvore.  e editar  c copiar  x remover  d desconectar  w nova worksheet
-  "+ Nova conexão": básica (host/porta/serviço ou SID), TNS (alias do tnsnames.ora ou descritor),
+  Na entrada abre o diálogo [::b]Conectar[::-]: conexões salvas à esquerda, propriedades à direita
+  (Testar, Salvar, Conectar). F9 reabre o diálogo a qualquer momento.
+  No painel: Enter conecta e abre a árvore.  e editar  c copiar  x remover  d desconectar  w nova worksheet
+  Conexão: básica (host/porta/serviço ou SID), TNS (alias do tnsnames.ora ou descritor),
   papel SYSDBA/SYSOPER/SYSBACKUP/SYSDG/SYSKM, wallet, SSL e o comando do RMAN.
   Senhas salvas ficam cifradas (AES-GCM) em `+store.Dir()+`.
   Importa o connections.json do SQL Developer (as senhas não vêm).
@@ -46,6 +48,8 @@ Cliente Oracle no terminal, leve e rápido: worksheet SQL, navegador de objetos 
   Ctrl+Space completa (tabelas, views, colunas por tabela/alias). Ctrl+R histórico. Ctrl+O/Ctrl+S abrir/salvar.
   Variáveis :nome são pedidas antes de executar. DBMS_OUTPUT aparece sozinho.
   Comandos do SQL*Plus: DESC, SET SERVEROUTPUT, SET AUTOCOMMIT, SHOW USER/ERRORS/PARAMETER/SGA/CON_NAME/PDBS, PROMPT, EXEC.
+  Resultado em abas: Resultado, Saída do script, Plano, Autotrace, DBMS Output (• = saída nova).
+  Ctrl+↑/↓ muda a altura do editor. Barra da worksheet: ▶ ▷ ⇲ autotrace ✓ ✗ ■ limpar histórico autocommit.
   Resultado: Enter/v valor da célula, R registro, y copia célula, Y copia tudo, o ordena, / filtra, x exporta (CSV/INSERT/JSON).
   t alterna entre a grade e a saída em texto.
 
@@ -66,13 +70,20 @@ Cliente Oracle no terminal, leve e rápido: worksheet SQL, navegador de objetos 
 Light and fast Oracle client for the terminal: SQL worksheet, object browser and the DBA tab.
 
 [#9fd3c7::b]Screen[-::-]
-  Left: [::b]Connections[::-] (with the object browser) and [::b]DBA[::-]. F2 switches; mouse clicks work too.
+  Top: [::b]menu bar[::-] (File, Edit, View, Navigate, Run, Tools, Window, Help) and the toolbar
+  (✚ ▶ ▷ ■ ⇲ ✓ ✗ ⛁). F10 opens the menus; ←/→ switch menus; mouse clicks work too.
+  Left: the [::b]Connections[::-] pane (with the object browser) and, below it, the [::b]DBA[::-] pane.
+  F2 switches panes; Ctrl+←/→ and Ctrl+↑/↓ (in a pane) resize; View hides/shows the pane.
   Right: tabs (worksheets, DBA screens, objects). Ctrl+PgUp/PgDn or Alt+←/→ switch; Alt+1..9 jump.
-  F3 moves focus between tree, editor and result. Ctrl+W closes the tab. Ctrl+Q quits.
+  F3 moves focus between panes, editor and result. Ctrl+W closes the tab. Ctrl+Q quits.
+  [::b]Right click[::-] (or Shift+F10 / Ctrl+Space in a pane) opens the context menu of the selection.
+  Click selects; [::b]double click[::-] opens. Ctrl+C copies. At the bottom, the status bar (click = messages).
 
 [#9fd3c7::b]Connections[::-]
-  Enter connects and opens the tree.  e edit  c copy  x delete  d disconnect  w new worksheet
-  "+ New connection": basic (host/port/service or SID), TNS (tnsnames.ora alias or descriptor),
+  At startup the [::b]Connect[::-] dialog opens: saved connections on the left, properties on the right
+  (Test, Save, Connect). F9 reopens the dialog at any time.
+  In the pane: Enter connects and opens the tree.  e edit  c copy  x delete  d disconnect  w new worksheet
+  Connection: basic (host/port/service or SID), TNS (tnsnames.ora alias or descriptor),
   role SYSDBA/SYSOPER/SYSBACKUP/SYSDG/SYSKM, wallet, SSL and the RMAN command.
   Saved passwords are encrypted (AES-GCM) in `+store.Dir()+`.
   Imports SQL Developer's connections.json (passwords are not imported).
@@ -89,6 +100,8 @@ Light and fast Oracle client for the terminal: SQL worksheet, object browser and
   Ctrl+Space completes (tables, views, columns by table/alias). Ctrl+R history. Ctrl+O/Ctrl+S open/save.
   :name bind variables are asked before running. DBMS_OUTPUT shows up by itself.
   SQL*Plus commands: DESC, SET SERVEROUTPUT, SET AUTOCOMMIT, SHOW USER/ERRORS/PARAMETER/SGA/CON_NAME/PDBS, PROMPT, EXEC.
+  Results in tabs: Result, Script output, Plan, Autotrace, DBMS Output (• = new output).
+  Ctrl+↑/↓ changes the editor height. Worksheet bar: ▶ ▷ ⇲ autotrace ✓ ✗ ■ clear history autocommit.
   Result: Enter/v cell value, R record, y copy cell, Y copy all, o sort, / filter, x export (CSV/INSERT/JSON).
   t toggles between the grid and the text output.
 
@@ -113,40 +126,5 @@ func NewHelp(a *App) Tab {
 	t.SetDynamicColors(true).SetWrap(true)
 	t.SetText(helpText())
 	t.text = helpText()
-	return t
-}
-
-// NewWelcome é a tela da primeira execução.
-func NewWelcome(a *App) Tab {
-	t := NewTextTab(a, nil, L("Bem-vindo", "Welcome"), "")
-	t.SetDynamicColors(true).SetWrap(true)
-	txt := fmt.Sprintf("[#2EBD59]%s[-]\n\n", tview.Escape(Logo)) + L(
-		`  Bem-vindo ao [::b]ORA BRABO Studio[::-].
-
-  1. Na esquerda, Enter em [#2EBD59]+ Nova conexão[-] (ou importe as do SQL Developer).
-  2. Enter na conexão: abre o navegador de objetos e a worksheet (Ctrl+N).
-  3. F2 mostra a aba [::b]DBA[::-] com as telas de administração.
-
-  F1 abre a ajuda completa a qualquer momento.
-
-  [gray]Enter cria a primeira conexão agora.  by • DBA BRABO[-]`,
-		`  Welcome to [::b]ORA BRABO Studio[::-].
-
-  1. On the left, Enter on [#2EBD59]+ New connection[-] (or import SQL Developer's).
-  2. Enter on the connection: opens the object browser and a worksheet (Ctrl+N).
-  3. F2 shows the [::b]DBA[::-] tab with the administration screens.
-
-  F1 opens the full help at any time.
-
-  [gray]Enter creates the first connection now.  by • DBA BRABO[-]`)
-	t.SetText(txt)
-	t.text = txt
-	t.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-		if ev.Key() == tcell.KeyEnter {
-			a.connForm(nil)
-			return nil
-		}
-		return ev
-	})
 	return t
 }

@@ -26,15 +26,36 @@ type Worksheet struct {
 	*tview.Flex
 	baseTab
 	sess    *ora.Session
+	tb      *tview.TextView // barra de ferramentas da worksheet
 	ed      *tview.TextArea
-	info    *tview.TextView
+	rbar    *tview.TextView // abas do resultado
 	out     *tview.Pages
 	grid    *Grid
-	text    *tview.TextView
-	textBuf strings.Builder
+	texts   map[string]*tview.TextView
+	bufs    map[string]*strings.Builder
+	info    *tview.TextView
 	running bool
 	file    string
-	showing string // "grid" ou "text"
+	showing string // grid, script, plan, trace, dbms
+	edW     int    // peso do editor (resultado = 10 - edW)
+	lower   *tview.Flex
+}
+
+// abas do resultado, como no SQL Developer
+var outPages = []string{"grid", "script", "plan", "trace", "dbms"}
+
+func outTitle(p string) string {
+	switch p {
+	case "grid":
+		return L("Resultado", "Query Result")
+	case "script":
+		return L("Saída do script", "Script Output")
+	case "plan":
+		return L("Plano", "Explain Plan")
+	case "trace":
+		return "Autotrace"
+	}
+	return "DBMS Output"
 }
 
 // NewWorksheet abre uma worksheet na conexão.
@@ -48,23 +69,162 @@ func NewWorksheet(a *App, c *Conn, text string) (*Worksheet, error) {
 	if n := wsSeq[c.Info.Name]; n > 1 {
 		title = fmt.Sprintf("%s (%d)", c.Info.Name, n)
 	}
-	w := &Worksheet{Flex: tview.NewFlex().SetDirection(tview.FlexRow), sess: s}
+	w := &Worksheet{Flex: tview.NewFlex().SetDirection(tview.FlexRow), sess: s, edW: 5,
+		texts: map[string]*tview.TextView{}, bufs: map[string]*strings.Builder{}}
+	w.baseTab = baseTab{a: a, c: c, title: title}
+	w.tb = tview.NewTextView().SetDynamicColors(true).SetRegions(true).SetWrap(false)
+	w.tb.SetBackgroundColor(tcell.NewRGBColor(24, 38, 46))
+	w.tb.SetHighlightedFunc(func(added, _, _ []string) {
+		if len(added) > 0 {
+			w.tb.Highlight()
+			w.toolbar(added[0])
+		}
+	})
 	w.ed = tview.NewTextArea().SetPlaceholder(L("Digite o SQL. F9 executa o comando do cursor, F5 o script inteiro. F1 ajuda.",
 		"Type SQL. F9 runs the statement at the cursor, F5 the whole script. F1 help."))
 	w.ed.SetText(text, false)
 	w.ed.SetBorder(true).SetBorderColor(tcell.NewRGBColor(70, 90, 100))
+	w.ed.SetTitle(" " + L("Worksheet", "Worksheet") + " ").SetTitleAlign(tview.AlignLeft)
+	w.ed.SetFocusFunc(func() { w.ed.SetBorderColor(tcell.NewRGBColor(46, 189, 89)); a.hint() })
+	w.ed.SetBlurFunc(func() { w.ed.SetBorderColor(tcell.NewRGBColor(70, 90, 100)) })
+	w.ed.SetClipboard(func(t string) { Copy(t) }, func() string { return clipboard })
+	w.rbar = tview.NewTextView().SetDynamicColors(true).SetRegions(true).SetWrap(false)
+	w.rbar.SetHighlightedFunc(func(added, _, _ []string) {
+		if len(added) > 0 {
+			w.show(added[0])
+			w.focusOut()
+		}
+	})
 	w.info = tview.NewTextView().SetDynamicColors(true)
 	w.grid = NewGrid(a)
-	w.text = tview.NewTextView().SetScrollable(true).SetDynamicColors(false).SetWrap(false)
-	w.out = tview.NewPages().AddPage("grid", w.grid, true, true).AddPage("text", w.text, true, false)
+	w.out = tview.NewPages().AddPage("grid", w.grid, true, true)
+	for _, p := range outPages[1:] {
+		tv := tview.NewTextView().SetScrollable(true).SetWrap(false)
+		tv.SetInputCapture(w.outKeys)
+		w.texts[p], w.bufs[p] = tv, &strings.Builder{}
+		w.out.AddPage(p, tv, true, false)
+		a.SetContext(tv, w.textCtx(p))
+		a.mouseText(tv)
+	}
 	w.showing = "grid"
-	w.AddItem(w.ed, 0, 1, true).AddItem(w.info, 1, 0, false).AddItem(w.out, 0, 1, false)
-	w.baseTab = baseTab{a: a, c: c, title: title, main: w.ed}
+	lower := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(w.rbar, 1, 0, false).AddItem(w.out, 0, 1, false).AddItem(w.info, 1, 0, false)
+	w.AddItem(w.tb, 1, 0, false).AddItem(w.ed, 0, w.edW, true).AddItem(lower, 0, 10-w.edW, false)
+	w.lower = lower
+	w.main = w.ed
 	w.ed.SetInputCapture(w.edKeys)
-	w.text.SetInputCapture(w.outKeys)
 	w.grid.Keys = w.outKeys
+	w.grid.OnEnter = func(i int, _ map[string]string) {
+		_, col := w.grid.Table.GetSelection()
+		w.grid.showCell(i, col)
+	}
+	a.SetContext(w.ed, w.edCtx)
+	a.SetContext(w.grid.Table, w.grid.ctxItems)
+	a.mouseText(w.ed)
+	a.mouseTable(w.grid.Table, func() {
+		if i := w.grid.Selected(); i >= 0 {
+			_, col := w.grid.Table.GetSelection()
+			w.grid.showCell(i, col)
+		}
+	})
+	w.drawToolbar()
+	w.drawRbar()
 	w.drawInfo("")
 	return w, nil
+}
+
+func (w *Worksheet) drawToolbar() {
+	ac := "[gray]autocommit[-]"
+	if w.sess.AutoCommit {
+		ac = "[yellow::b]AUTOCOMMIT[-::-]"
+	}
+	b := []struct{ id, txt string }{
+		{"trun", "[#2EBD59]▶[-] " + L("Executar", "Run") + " [gray]F9[-]"},
+		{"tscript", "[#2EBD59]▷[-] Script [gray]F5[-]"},
+		{"tplan", "[#9fd3c7]⇲[-] " + L("Plano", "Explain") + " [gray]F10[-]"},
+		{"ttrace", "[#9fd3c7]⚑[-] Autotrace [gray]F6[-]"},
+		{"tcommit", "[green]✓[-] Commit [gray]F11[-]"},
+		{"troll", "[red]✗[-] Rollback [gray]F12[-]"},
+		{"tstop", "[red]■[-] " + L("Cancelar", "Cancel")},
+		{"tclear", "⌫ " + L("Limpar", "Clear")},
+		{"thist", "⟲ " + L("Histórico", "History")},
+		{"tac", ac},
+	}
+	var sb strings.Builder
+	sb.WriteString(" ")
+	for i, x := range b {
+		if i == 2 || i == 4 || i == 6 || i == 8 {
+			sb.WriteString("[gray]│[-] ")
+		}
+		fmt.Fprintf(&sb, `["%s"]%s[""]  `, x.id, x.txt)
+	}
+	w.tb.SetText(sb.String())
+}
+
+// toolbar executa um botão da barra (também chamado pela barra de cima).
+func (w *Worksheet) toolbar(id string) {
+	switch id {
+	case "trun":
+		w.runCurrent(false)
+	case "tscript":
+		w.runScript()
+	case "tplan":
+		w.explain()
+	case "ttrace":
+		w.runCurrent(true)
+	case "tcommit":
+		w.commit(true)
+	case "troll":
+		w.commit(false)
+	case "tstop":
+		if w.running {
+			w.sess.Cancel()
+			w.drawInfo(L("cancelando…", "cancelling…"))
+		}
+	case "tclear":
+		w.ed.SetText("", false)
+	case "thist":
+		w.history()
+	case "tac":
+		w.toggleAutocommit()
+	}
+}
+
+func (w *Worksheet) runScriptSafe() { w.runScript() }
+
+func (w *Worksheet) toggleAutocommit() {
+	if !w.sess.AutoCommit && w.sess.Pending {
+		w.a.Confirm(L("Há alterações pendentes. Ligar o autocommit faz COMMIT delas. Continuar?", "There are pending changes. Turning autocommit on COMMITs them. Continue?"), func() {
+			if err := w.sess.Commit(); err != nil {
+				w.a.Errf("%v", err)
+				return
+			}
+			w.sess.AutoCommit = true
+			w.drawToolbar()
+			w.drawInfo("")
+		})
+		return
+	}
+	w.sess.AutoCommit = !w.sess.AutoCommit
+	w.drawToolbar()
+	w.drawInfo("")
+}
+
+func (w *Worksheet) drawRbar() {
+	var sb strings.Builder
+	sb.WriteString(" ")
+	for _, p := range outPages {
+		t := outTitle(p)
+		if p != "grid" && w.bufs[p].Len() > 0 && p != w.showing {
+			t += " •"
+		}
+		if p == w.showing {
+			fmt.Fprintf(&sb, `["%s"][black:#9fd3c7] %s [-:-:-][""] `, p, t)
+		} else {
+			fmt.Fprintf(&sb, `["%s"][#9fd3c7:#1e2d37] %s [-:-:-][""] `, p, t)
+		}
+	}
+	w.rbar.SetText(sb.String())
 }
 
 // Close devolve a sessão (rollback do que estiver pendente).
@@ -75,6 +235,14 @@ func (w *Worksheet) Close() {
 	}
 }
 
+func (w *Worksheet) focusOut() {
+	if w.showing == "grid" {
+		w.a.tv.SetFocus(w.grid)
+	} else {
+		w.a.tv.SetFocus(w.texts[w.showing])
+	}
+}
+
 // FocusPart: 0 = editor, 1 = alterna editor/resultado.
 func (w *Worksheet) FocusPart(step int) bool {
 	if step == 0 {
@@ -82,29 +250,22 @@ func (w *Worksheet) FocusPart(step int) bool {
 		return true
 	}
 	if w.ed.HasFocus() {
-		if w.showing == "grid" {
-			w.a.tv.SetFocus(w.grid)
-		} else {
-			w.a.tv.SetFocus(w.text)
-		}
+		w.focusOut()
 		return true
 	}
 	return false
 }
 
 func (w *Worksheet) Hint() string {
-	if w.grid.HasFocus() {
-		return GridHint() + L("  [yellow]t[-] saída/grade  [yellow]F3[-] editor", "  [yellow]t[-] output/grid  [yellow]F3[-] editor")
+	if !w.ed.HasFocus() {
+		return GridHint() + L("  [gray]│[-]  [yellow]Ctrl+PgUp/PgDn[-] abas do resultado  [gray]│[-]  [yellow]Esc[-] editor", "  [gray]│[-]  [yellow]Ctrl+PgUp/PgDn[-] result tabs  [gray]│[-]  [yellow]Esc[-] editor")
 	}
-	return L("[yellow]F9[-] executa  [yellow]F5[-] script  [yellow]F10[-] plano  [yellow]F6[-] autotrace  [yellow]F11[-] commit  [yellow]F12[-] rollback  [yellow]Esc[-] cancela  [yellow]Ctrl+Space[-] completar  [yellow]Ctrl+R[-] histórico  [yellow]Ctrl+O/S[-] abrir/salvar  [yellow]Ctrl+T[-] autocommit  [yellow]F3[-] resultado",
-		"[yellow]F9[-] run  [yellow]F5[-] script  [yellow]F10[-] plan  [yellow]F6[-] autotrace  [yellow]F11[-] commit  [yellow]F12[-] rollback  [yellow]Esc[-] cancel  [yellow]Ctrl+Space[-] complete  [yellow]Ctrl+R[-] history  [yellow]Ctrl+O/S[-] open/save  [yellow]Ctrl+T[-] autocommit  [yellow]F3[-] result")
+	return L("[yellow]F9[-] executa  [yellow]F5[-] script  [yellow]F10[-] plano  [yellow]F6[-] autotrace  [yellow]F11[-]/[yellow]F12[-] commit/rollback  [yellow]Ctrl+Space[-] completar  [yellow]Ctrl+R[-] histórico  [yellow]Ctrl+↑↓[-] tamanho  [yellow]clique direito[-] menu",
+		"[yellow]F9[-] run  [yellow]F5[-] script  [yellow]F10[-] plan  [yellow]F6[-] autotrace  [yellow]F11[-]/[yellow]F12[-] commit/rollback  [yellow]Ctrl+Space[-] complete  [yellow]Ctrl+R[-] history  [yellow]Ctrl+↑↓[-] size  [yellow]right-click[-] menu")
 }
 
 func (w *Worksheet) drawInfo(msg string) {
 	flags := []string{}
-	if w.sess.AutoCommit {
-		flags = append(flags, "[yellow]AUTOCOMMIT[-]")
-	}
 	if w.sess.Pending {
 		flags = append(flags, "[red::b]"+L("PENDENTE (sem commit)", "PENDING (uncommitted)")+"[-::-]")
 	}
@@ -115,9 +276,16 @@ func (w *Worksheet) drawInfo(msg string) {
 		flags = append(flags, "[gray]"+tview.Escape(filepath.Base(w.file))+"[-]")
 	}
 	w.info.SetText(" " + strings.Join(flags, "  ") + "  " + msg)
+	w.drawToolbar()
+}
+
+func (w *Worksheet) resize(d int) {
+	w.edW = min(max(w.edW+d, 1), 9)
+	w.ResizeItem(w.ed, 0, w.edW).ResizeItem(w.lower, 0, 10-w.edW)
 }
 
 func (w *Worksheet) edKeys(ev *tcell.EventKey) *tcell.EventKey {
+	ctrl := ev.Modifiers()&tcell.ModCtrl != 0
 	switch ev.Key() {
 	case tcell.KeyF9, tcell.KeyCtrlE:
 		w.runCurrent(false)
@@ -156,30 +324,50 @@ func (w *Worksheet) edKeys(ev *tcell.EventKey) *tcell.EventKey {
 		w.saveFile()
 		return nil
 	case tcell.KeyCtrlT:
-		w.sess.AutoCommit = !w.sess.AutoCommit
-		w.drawInfo("")
+		w.toggleAutocommit()
 		return nil
+	case tcell.KeyUp, tcell.KeyDown:
+		if ctrl {
+			w.resize(map[tcell.Key]int{tcell.KeyUp: -1, tcell.KeyDown: 1}[ev.Key()])
+			return nil
+		}
+	case tcell.KeyPgUp, tcell.KeyPgDn:
+		if ctrl {
+			return ev // troca de aba (global)
+		}
 	}
 	return ev
 }
 
 func (w *Worksheet) outKeys(ev *tcell.EventKey) *tcell.EventKey {
-	if ev.Key() == tcell.KeyEscape {
+	ctrl := ev.Modifiers()&tcell.ModCtrl != 0
+	switch {
+	case ev.Key() == tcell.KeyEscape:
 		w.a.tv.SetFocus(w.ed)
 		return nil
-	}
-	if ev.Key() == tcell.KeyRune && ev.Rune() == 't' {
-		if w.showing == "grid" {
-			w.show("text")
-			w.a.tv.SetFocus(w.text)
-		} else {
-			w.show("grid")
-			w.a.tv.SetFocus(w.grid)
+	case ctrl && (ev.Key() == tcell.KeyPgDn || ev.Key() == tcell.KeyPgUp):
+		d := 1
+		if ev.Key() == tcell.KeyPgUp {
+			d = -1
 		}
+		i := 0
+		for k, p := range outPages {
+			if p == w.showing {
+				i = k
+			}
+		}
+		w.show(outPages[(i+d+len(outPages))%len(outPages)])
+		w.focusOut()
 		return nil
-	}
-	if ev.Key() == tcell.KeyRune && ev.Rune() == 'y' && w.text.HasFocus() {
-		Copy(w.textBuf.String())
+	case ctrl && (ev.Key() == tcell.KeyUp || ev.Key() == tcell.KeyDown):
+		w.resize(map[tcell.Key]int{tcell.KeyUp: -1, tcell.KeyDown: 1}[ev.Key()])
+		return nil
+	case ev.Key() == tcell.KeyRune && ev.Rune() == 'y' && w.showing != "grid":
+		Copy(w.bufs[w.showing].String())
+		w.a.Msg(L("Saída copiada.", "Output copied."))
+		return nil
+	case ev.Key() == tcell.KeyCtrlC && w.showing != "grid":
+		Copy(w.bufs[w.showing].String())
 		w.a.Msg(L("Saída copiada.", "Output copied."))
 		return nil
 	}
@@ -189,6 +377,47 @@ func (w *Worksheet) outKeys(ev *tcell.EventKey) *tcell.EventKey {
 func (w *Worksheet) show(p string) {
 	w.showing = p
 	w.out.SwitchToPage(p)
+	w.drawRbar()
+	w.a.hint()
+}
+
+// edCtx é o clique direito do editor.
+func (w *Worksheet) edCtx() []menuItem {
+	k := func(key tcell.Key) func() {
+		return func() {
+			w.ed.InputHandler()(tcell.NewEventKey(key, 0, tcell.ModNone), func(p tview.Primitive) { w.a.tv.SetFocus(p) })
+		}
+	}
+	return []menuItem{
+		item(L("Executar comando", "Run statement"), "F9", func() { w.runCurrent(false) }),
+		item(L("Executar script", "Run script"), "F5", w.runScript),
+		item(L("Plano de execução", "Explain plan"), "F10", w.explain),
+		item("Autotrace", "F6", func() { w.runCurrent(true) }),
+		sep(),
+		item(L("Recortar", "Cut"), "Ctrl+X", k(tcell.KeyCtrlX)),
+		item(L("Copiar", "Copy"), "Ctrl+C", k(tcell.KeyCtrlQ)),
+		item(L("Colar", "Paste"), "Ctrl+V", k(tcell.KeyCtrlV)),
+		item(L("Selecionar tudo", "Select all"), "Ctrl+L", k(tcell.KeyCtrlL)),
+		sep(),
+		item(L("Completar", "Complete"), "Ctrl+Space", w.complete),
+		item(L("Histórico de SQL", "SQL history"), "Ctrl+R", w.history),
+		item(L("Salvar script", "Save script"), "Ctrl+S", w.saveFile),
+	}
+}
+
+func (w *Worksheet) textCtx(p string) ctxProvider {
+	return func() []menuItem {
+		return []menuItem{
+			item(L("Copiar tudo", "Copy all"), "y", func() { Copy(w.bufs[p].String()); w.a.Msg(L("Saída copiada.", "Output copied.")) }),
+			item(L("Salvar em arquivo…", "Save to file…"), "", func() { w.a.SaveFile(sanitize(outTitle(p))+".txt", w.bufs[p].String()) }),
+			item(L("Abrir numa worksheet", "Open in a worksheet"), "", func() {
+				if nw, err := NewWorksheet(w.a, w.c, w.bufs[p].String()); err == nil {
+					w.a.tabs.Add(nw)
+				}
+			}),
+			item(L("Limpar", "Clear"), "", func() { w.clearOut(p); w.drawRbar() }),
+		}
+	}
 }
 
 // selection devolve (texto, início) da seleção ou ("", cursor).
@@ -209,15 +438,23 @@ func (w *Worksheet) current() (ora.Stmt, bool) {
 	return ora.AtCursor(w.ed.GetText(), pos)
 }
 
-func (w *Worksheet) appendText(s string) {
-	w.textBuf.WriteString(s)
-	fmt.Fprint(w.text, s)
-	w.text.ScrollToEnd()
+// appendOut escreve numa aba de texto do resultado.
+func (w *Worksheet) appendOut(p, s string) {
+	w.bufs[p].WriteString(s)
+	fmt.Fprint(w.texts[p], s)
+	w.texts[p].ScrollToEnd()
+	w.drawRbar()
 }
 
-func (w *Worksheet) clearText() {
-	w.textBuf.Reset()
-	w.text.Clear()
+func (w *Worksheet) clearOut(p string) {
+	w.bufs[p].Reset()
+	w.texts[p].Clear()
+}
+
+func (w *Worksheet) setOut(p, s string) {
+	w.clearOut(p)
+	w.appendOut(p, s)
+	w.texts[p].ScrollToBeginning()
 }
 
 // withBinds pede os valores das :variáveis e chama run.
@@ -303,7 +540,11 @@ func (w *Worksheet) runCurrent(trace bool) {
 			w.hist(st.Text, r)
 			return func() {
 				w.running = false
-				w.showResult(r, true)
+				page := ""
+				if trace && st.Kind == ora.KindQuery {
+					page = "trace"
+				}
+				w.showResult(r, page)
 			}
 		})
 	})
@@ -313,21 +554,26 @@ func (w *Worksheet) hist(sql string, r ora.Result) {
 	store.AddHist(store.Hist{When: time.Now(), Conn: w.c.Info.Name, SQL: strings.TrimSpace(sql), OK: r.Err == nil, Ms: r.Elapsed.Milliseconds()})
 }
 
-// showResult põe o resultado na grade ou no texto.
-func (w *Worksheet) showResult(r ora.Result, clear bool) {
-	if clear {
-		w.clearText()
+// showResult distribui o resultado nas abas (como no SQL Developer):
+// consulta → Resultado; DML/DDL/erros → Saída do script; DBMS_OUTPUT → DBMS Output.
+func (w *Worksheet) showResult(r ora.Result, page string) {
+	for _, l := range r.Output {
+		w.appendOut("dbms", l+"\n")
 	}
 	if r.Err != nil {
-		w.appendText(errText(r) + "\n")
-		w.show("text")
+		w.appendOut("script", scriptLine(r))
+		w.show("script")
 		w.drawInfo("[red]" + tview.Escape(firstLine(r.Err.Error())) + "[-]")
 		return
 	}
-	for _, l := range r.Output {
-		w.appendText(l + "\n")
-	}
 	switch {
+	case page == "plan" || page == "trace":
+		w.setOut(page, r.Text)
+		if len(r.Cols) > 0 {
+			w.grid.SetResult(r)
+		}
+		w.show(page)
+		w.drawInfo(fmt.Sprintf("%s %s", outTitle(page), r.Elapsed.Round(time.Millisecond)))
 	case len(r.Cols) > 0:
 		w.grid.SetResult(r)
 		w.grid.Source = sourceTable(r.Stmt.Text)
@@ -335,24 +581,16 @@ func (w *Worksheet) showResult(r ora.Result, clear bool) {
 		if r.More {
 			more = fmt.Sprintf(L(" (primeiras %d; há mais)", " (first %d; more available)"), len(r.Rows))
 		}
-		if r.Text != "" {
-			w.appendText(r.Text)
-		}
-		if r.Text != "" || len(r.Output) > 0 {
-			w.show("text")
-		} else {
-			w.show("grid")
-		}
+		w.show("grid")
 		w.drawInfo(fmt.Sprintf(L("%d linha(s)%s em %s", "%d row(s)%s in %s"), len(r.Rows), more, r.Elapsed.Round(time.Millisecond)))
 	default:
-		if r.Text != "" {
-			w.appendText(r.Text)
+		w.appendOut("script", scriptLine(r))
+		if len(r.Output) > 0 && r.Text == "" {
+			w.show("dbms")
+		} else {
+			w.show("script")
 		}
-		if r.Msg != "" {
-			w.appendText(r.Msg + "\n")
-		}
-		w.show("text")
-		w.drawInfo(fmt.Sprintf("%s %s", tview.Escape(r.Msg), r.Elapsed.Round(time.Millisecond)))
+		w.drawInfo(fmt.Sprintf("%s %s", tview.Escape(firstLine(r.Msg)), r.Elapsed.Round(time.Millisecond)))
 	}
 }
 
@@ -403,7 +641,8 @@ func (w *Worksheet) runScript() {
 	}
 	w.withBinds(sts, func(vals map[string]string) {
 		w.running = true
-		w.clearText()
+		w.clearOut("script")
+		w.show("script")
 		w.drawInfo("")
 		w.a.Go(func() func() {
 			t0 := time.Now()
@@ -413,7 +652,13 @@ func (w *Worksheet) runScript() {
 				r := w.sess.Run(st, bindArgs(st, vals))
 				w.hist(st.Text, r)
 				out := scriptLine(r)
-				w.a.tv.QueueUpdateDraw(func() { w.appendText(out) })
+				dbms := r.Output
+				w.a.tv.QueueUpdateDraw(func() {
+					w.appendOut("script", out)
+					for _, l := range dbms {
+						w.appendOut("dbms", l+"\n")
+					}
+				})
 				if r.Err != nil {
 					fail++
 				} else {
@@ -432,8 +677,8 @@ func (w *Worksheet) runScript() {
 				if len(last.Cols) > 0 {
 					w.grid.SetResult(last)
 				}
-				w.show("text")
-				w.drawInfo(fmt.Sprintf(L("script: %d ok, %d erro(s) em %s  ·  t alterna saída/grade", "script: %d ok, %d error(s) in %s  ·  t toggles output/grid"), ok, fail, el))
+				w.show("script")
+				w.drawInfo(fmt.Sprintf(L("script: %d ok, %d erro(s) em %s  ·  clique nas abas do resultado", "script: %d ok, %d error(s) in %s  ·  click the result tabs"), ok, fail, el))
 			}
 		})
 	})
@@ -520,7 +765,7 @@ func (w *Worksheet) explain() {
 		r := w.sess.Explain(st)
 		return func() {
 			w.running = false
-			w.showResult(r, true)
+			w.showResult(r, "plan")
 		}
 	})
 }
@@ -539,6 +784,7 @@ func (w *Worksheet) commit(ok bool) {
 		w.a.Errf("%v", err)
 		return
 	}
+	w.appendOut("script", map[bool]string{true: L("Commit concluído.", "Commit complete."), false: L("Rollback concluído.", "Rollback complete.")}[ok]+"\n")
 	w.drawInfo(map[bool]string{true: "[green]" + L("Commit concluído.", "Commit complete.") + "[-]", false: "[yellow]" + L("Rollback concluído.", "Rollback complete.") + "[-]"}[ok])
 	w.a.tabs.Redraw()
 }

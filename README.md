@@ -21,7 +21,9 @@
 
 **[Português](#português)** · **[English](#english)**
 
-<img src="docs/img/dba-tree-pt.svg" alt="ORA BRABO Studio: aba DBA" width="900">
+<img src="docs/img/demo-pt.gif" alt="ORA BRABO Studio: demonstração" width="900">
+
+<sub>Conectar → worksheet → menus → clique direito → aba DBA → prévia da ação</sub>
 
 </div>
 
@@ -30,6 +32,7 @@
 ## Português
 
 - [Por que existe](#por-que-existe)
+- [A interface](#a-interface)
 - [Telas](#telas)
 - [O que ele faz](#o-que-ele-faz)
 - [Segurança primeiro](#segurança-primeiro)
@@ -58,15 +61,26 @@ Tudo isso por teclado e mouse, dentro de uma sessão SSH comum.
 | Ações DBA | assistentes | assistente **com o comando à mostra, editável, antes de rodar** |
 | Idioma | — | **PT-BR e EN** |
 
+### A interface
+
+O layout segue o de um estúdio gráfico Oracle, adaptado ao terminal:
+- **barra de menus** (Arquivo, Editar, Exibir, Navegar, Executar, Ferramentas, Janela, Ajuda) e **barra de ferramentas** (✚ ▶ ▷ ■ ⇲ ✓ ✗ ⛁). F10 abre os menus, e o mouse funciona em tudo;
+- à esquerda, o painel **Conexões** (com o navegador de objetos) e, embaixo, o painel **DBA**. Os dois ficam visíveis e mudam de tamanho com `Ctrl+setas`;
+- à direita, as **abas**: worksheets, telas DBA e objetos;
+- **clique direito** (ou `Shift+F10`) abre o menu de contexto em qualquer lugar: conexão, pasta, objeto, tela DBA, grade, texto e editor. Clique seleciona e **duplo clique abre**;
+- na entrada aparece o diálogo **Conectar**: conexões salvas à esquerda e propriedades à direita, com Testar, Salvar e Conectar. `F9` reabre o diálogo;
+- embaixo fica a **barra de status**, com os atalhos do lugar, a conexão da aba (usuário, contêiner, versão) e a hora. Clicar nela mostra o histórico de mensagens.
+
 ### Telas
 
 | | |
 |---|---|
-| <img src="docs/img/welcome-pt.svg" width="440"><br>**Primeira execução** | <img src="docs/img/connection-pt.svg" width="440"><br>**Conexão**: básica, TNS, SYSDBA, wallet, SSL, comando do RMAN |
-| <img src="docs/img/action-form-pt.svg" width="440"><br>**Ação DBA**: formulário com valores já preenchidos da linha | <img src="docs/img/action-preview-pt.svg" width="440"><br>**Prévia**: o comando exato aparece antes de executar e pode ser editado |
-| <img src="docs/img/dba-tree-pt.svg" width="440"><br>**Aba DBA**: 9 grupos, 97 telas | <img src="docs/img/help-pt.svg" width="440"><br>**F1**: ajuda completa dentro do programa |
+| <img src="docs/img/connect-pt.png" width="440"><br>**Conectar**: abre na entrada, com as conexões salvas e as propriedades (Testar, Salvar, Conectar) | <img src="docs/img/worksheet-pt.png" width="440"><br>**Worksheet**: barra própria (▶ F9, ▷ F5, plano, autotrace, commit, rollback) e resultado em abas |
+| <img src="docs/img/menu-pt.png" width="440"><br>**Menus (F10)**: o menu Ferramentas abre as telas DBA mais usadas | <img src="docs/img/context-pt.png" width="440"><br>**Clique direito** numa conexão: conectar, worksheet, aba DBA, propriedades... |
+| <img src="docs/img/dba-pt.png" width="440"><br>**Aba DBA**: painel embaixo das conexões; a tela de tablespaces lista as ações por letra | <img src="docs/img/action-form-pt.png" width="440"><br>**Ação DBA**: formulário com os valores da linha selecionada já preenchidos |
+| <img src="docs/img/action-preview-pt.png" width="440"><br>**Prévia**: o comando exato aparece antes de rodar e pode ser editado | <img src="docs/img/help-pt.png" width="440"><br>**F1**: ajuda completa dentro do programa |
 
-> Prints gerados da tela real do programa (`internal/ui/shots_test.go`). As telas com dados de um banco (worksheet, painel da instância, Top Activity) entram assim que terminar a validação ao vivo. Veja o [Status](#status).
+> Os prints saem da tela real do programa (`internal/ui/shots_test.go`, em PT e EN). Os dados da worksheet e da tela de tablespaces são de exemplo. Os prints com um banco de verdade entram quando terminar a validação ao vivo (veja o [Status](#status)).
 
 ### O que ele faz
 
@@ -161,8 +175,13 @@ Em toda tela:
 | Onde | Tecla | Faz |
 |---|---|---|
 | Geral | `F1` | Ajuda |
-| | `F2` | Alterna Conexões / DBA |
-| | `F3` | Foco: árvore → editor → resultado |
+| | `F10` | Menus (no editor da worksheet, F10 é o plano) |
+| | clique direito, `Shift+F10` | Menu de contexto |
+| | `F9` | Diálogo Conectar (fora da worksheet) |
+| | `F2` | Alterna os painéis Conexões / DBA |
+| | `F3` | Foco: painéis → editor → resultado |
+| | `Ctrl+←/→`, `Ctrl+↑/↓` (no painel) | Largura do painel / divisão Conexões-DBA |
+| | `Ctrl+C` | Copia o que estiver em foco |
 | | `Ctrl+N` | Nova worksheet |
 | | `Ctrl+W` / `Ctrl+Q` | Fecha a aba / sai |
 | | `Ctrl+PgUp/PgDn`, `Alt+←/→`, `Alt+1..9` | Troca de aba |
@@ -174,6 +193,7 @@ Em toda tela:
 | | `Ctrl+R` | Histórico |
 | | `Ctrl+O` / `Ctrl+S` | Abrir / salvar |
 | | `Ctrl+T` | Liga/desliga autocommit |
+| | `Ctrl+↑/↓` | Altura do editor |
 | | `Esc` | Cancela a execução |
 | Árvore de conexões | `Enter` | Conecta / abre |
 | | `e` `c` `x` `d` `w` | Editar, copiar, remover, desconectar, worksheet |
@@ -232,7 +252,7 @@ A aba DBA é **declarativa**: cada tela é uma consulta e uma lista de ações. 
 
 **Beta.** Situação de cada parte:
 - **Testado:** o motor (divisor de script, TNS, armazenamento) e o catálogo (todas as ações geram comando válido).
-- **Testado em tela simulada:** a interface, com conexão, prévia e confirmação destrutiva.
+- **Testado em tela simulada:** a interface, com diálogo Conectar, menus, prévia e confirmação destrutiva.
 - **Em andamento:** a validação ao vivo contra Oracle 19c e 26ai, com a worksheet completa e o `check` nas 97 telas.
 
 Bugs e sugestões são bem-vindos nas *issues*.
@@ -268,13 +288,28 @@ DBAs live inside servers: jump hosts, SSH, customer VPNs, cloud consoles. A grap
 - an object browser;
 - a full **DBA tab**: instance, storage, security, RMAN, Data Pump, AWR/ASH/ADDM, Resource Manager, Scheduler and monitoring.
 
+<img src="docs/img/demo-en.gif" alt="ORA BRABO Studio demo" width="900">
+
+### The interface
+
+The layout follows a graphical Oracle studio, adapted to the terminal:
+- a **menu bar** (File, Edit, View, Navigate, Run, Tools, Window, Help) and a **toolbar** (✚ ▶ ▷ ■ ⇲ ✓ ✗ ⛁). F10 opens the menus, and the mouse works everywhere;
+- on the left, the **Connections** pane (with the object browser) and, below it, the **DBA** pane. Both stay visible and resize with `Ctrl+arrows`;
+- on the right, the **tabs**: worksheets, DBA screens and objects;
+- **right click** (or `Shift+F10`) opens a context menu everywhere: connection, folder, object, DBA screen, grid, text and editor. A click selects and a **double click opens**;
+- at startup the **Connect** dialog opens: saved connections on the left, properties on the right, with Test, Save and Connect. `F9` reopens it;
+- at the bottom, the **status bar** shows the shortcuts for where you are, the tab's connection (user, container, version) and the time. Clicking it shows the message history.
+
 ### Screens
 
 | | |
 |---|---|
-| <img src="docs/img/welcome-en.svg" width="440"><br>**First run** | <img src="docs/img/connection-en.svg" width="440"><br>**Connection**: basic, TNS, SYSDBA, wallet, SSL, RMAN command |
-| <img src="docs/img/action-form-en.svg" width="440"><br>**DBA action**: form pre-filled from the selected row | <img src="docs/img/action-preview-en.svg" width="440"><br>**Preview**: the exact command is shown, editable, before it runs |
-| <img src="docs/img/dba-tree-en.svg" width="440"><br>**DBA tab**: 9 groups, 97 screens | <img src="docs/img/help-en.svg" width="440"><br>**F1**: full in-app help |
+| <img src="docs/img/connect-en.png" width="440"><br>**Connect**: opens at startup with the saved connections and their properties (Test, Save, Connect) | <img src="docs/img/worksheet-en.png" width="440"><br>**Worksheet**: its own toolbar (▶ F9, ▷ F5, plan, autotrace, commit, rollback) and tabbed results |
+| <img src="docs/img/menu-en.png" width="440"><br>**Menus (F10)**: the Tools menu opens the most used DBA screens | <img src="docs/img/context-en.png" width="440"><br>**Right click** on a connection: connect, worksheet, DBA tab, properties... |
+| <img src="docs/img/dba-en.png" width="440"><br>**DBA tab**: pane below the connections; the tablespaces screen lists its actions by letter | <img src="docs/img/action-form-en.png" width="440"><br>**DBA action**: form pre-filled from the selected row |
+| <img src="docs/img/action-preview-en.png" width="440"><br>**Preview**: the exact command is shown, editable, before it runs | <img src="docs/img/help-en.png" width="440"><br>**F1**: full in-app help |
+
+> Screenshots come from the program's real screen (`internal/ui/shots_test.go`, PT and EN). The worksheet and tablespace data are samples; screenshots against a real database come after live validation.
 
 ### Features
 

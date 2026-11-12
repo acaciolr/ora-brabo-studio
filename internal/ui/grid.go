@@ -394,3 +394,36 @@ func GridHint() string {
 	return L("[yellow]Enter/v[-] valor  [yellow]R[-] registro  [yellow]y[-] copia célula  [yellow]Y[-] copia tudo  [yellow]o[-] ordena  [yellow]/[-] filtro  [yellow]x[-] exportar",
 		"[yellow]Enter/v[-] value  [yellow]R[-] record  [yellow]y[-] copy cell  [yellow]Y[-] copy all  [yellow]o[-] sort  [yellow]/[-] filter  [yellow]x[-] export")
 }
+
+// ctxItems é o clique direito da grade.
+func (g *Grid) ctxItems() []menuItem {
+	row, col := g.Table.GetSelection()
+	r := row - 1
+	has := r >= 0 && r < len(g.rows)
+	return []menuItem{
+		itemIf(has, L("Ver valor", "Show value"), "Enter", func() { g.showCell(r, col) }),
+		itemIf(has, L("Registro (vertical)", "Single record view"), "R", func() { g.a.TextBox(L("Registro", "Record"), g.recordText(r)) }),
+		sep(),
+		itemIf(has, L("Copiar célula", "Copy cell"), "y", func() { Copy(g.rows[r][col].V); g.a.Msg(L("Célula copiada.", "Cell copied.")) }),
+		itemIf(has, L("Copiar linha", "Copy row"), "", func() {
+			p := make([]string, len(g.rows[r]))
+			for i, c := range g.rows[r] {
+				p[i] = c.V
+			}
+			Copy(strings.Join(p, "\t"))
+			g.a.Msg(L("Linha copiada.", "Row copied."))
+		}),
+		itemIf(len(g.rows) > 0, L("Copiar tudo com cabeçalho", "Copy all with headers"), "Y", func() { Copy(g.Export("tsv")); g.a.Msg(L("Copiado.", "Copied.")) }),
+		sep(),
+		itemIf(col >= 0 && len(g.res.Cols) > 0, L("Ordenar por esta coluna", "Sort by this column"), "o", func() {
+			if g.sortBy == col {
+				g.desc = !g.desc
+			} else {
+				g.sortBy, g.desc = col, false
+			}
+			g.apply()
+		}),
+		item(L("Filtrar…", "Filter…"), "/", g.askFilter),
+		itemIf(len(g.rows) > 0, L("Exportar…", "Export…"), "x", g.exportDialog),
+	}
+}

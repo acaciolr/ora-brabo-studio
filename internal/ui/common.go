@@ -148,6 +148,19 @@ func NewTextTab(a *App, c *Conn, title, text string) *TextTab {
 	t := &TextTab{TextView: tview.NewTextView().SetScrollable(true).SetWrap(false), text: text}
 	t.baseTab = baseTab{a: a, c: c, title: title, main: t.TextView}
 	t.SetText(text)
+	a.SetContext(t.TextView, func() []menuItem {
+		return []menuItem{
+			item(L("Copiar tudo", "Copy all"), "y", func() { Copy(t.text); a.Msg(L("Texto copiado.", "Text copied.")) }),
+			item(L("Salvar em arquivo…", "Save to file…"), "s", func() { a.SaveFile(sanitize(title)+".txt", t.text) }),
+			itemIf(c != nil, L("Abrir numa worksheet", "Open in a worksheet"), "w", func() {
+				if w, err := NewWorksheet(a, c, t.text); err == nil {
+					a.tabs.Add(w)
+				}
+			}),
+			item(L("Quebrar linhas", "Wrap lines"), "W", func() { t.wrap = !t.wrap; t.SetWrap(t.wrap) }),
+		}
+	})
+	a.mouseText(t.TextView)
 	t.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		switch ev.Rune() {
 		case 'y':

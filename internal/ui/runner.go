@@ -374,6 +374,13 @@ func NewGridTab(a *App, c *Conn, title, q string) *GridTab {
 	g := &GridTab{Flex: tview.NewFlex().SetDirection(tview.FlexRow), grid: NewGrid(a), info: tview.NewTextView().SetDynamicColors(true), q: q}
 	g.AddItem(g.info, 1, 0, false).AddItem(g.grid, 0, 1, true)
 	g.baseTab = baseTab{a: a, c: c, title: title, main: g.grid}
+	a.SetContext(g.grid.Table, g.grid.ctxItems)
+	a.mouseTable(g.grid.Table, func() {
+		if i := g.grid.Selected(); i >= 0 {
+			_, col := g.grid.Table.GetSelection()
+			g.grid.showCell(i, col)
+		}
+	})
 	g.grid.Keys = func(ev *tcell.EventKey) *tcell.EventKey {
 		if ev.Key() == tcell.KeyF5 {
 			g.load()

@@ -63,6 +63,7 @@ create or replace procedure obs_ok as begin null; end;
 /
 desc obs_t
 show errors procedure obs_p
+insert into obs_t (id) values (3);
 rollback;
 select count(*) n from obs_t;
 exec dbms_output.put_line('exec ok')
@@ -92,14 +93,17 @@ explicar;`)
 	if !strings.Contains(res[9].Text, "PLS-") {
 		t.Fatalf("show errors: %q", res[9].Text)
 	}
-	// DDL (create table) fez commit implícito antes dos inserts; o rollback desfaz os dois inserts
-	if res[11].Rows[0][0].V != "0" {
-		t.Fatalf("rollback não desfez: %v", res[11].Rows)
+	// o CREATE PROCEDURE fez commit implícito dos inserts 1 e 2; o rollback desfaz só o 3
+	if res[12].Rows[0][0].V != "2" {
+		t.Fatalf("rollback não desfez: %v", res[12].Rows)
 	}
-	if len(res[12].Output) != 1 || res[12].Output[0] != "exec ok" {
-		t.Fatalf("exec: %+v", res[12])
+	if len(res[13].Output) != 1 || res[13].Output[0] != "exec ok" {
+		t.Fatalf("exec: %+v", res[13])
 	}
-	if res[13].Err == nil {
+	if res[1].Msg != L("Tabela criada.", "Table created.") {
+		t.Fatalf("mensagem do DDL: %q", res[1].Msg)
+	}
+	if res[14].Err == nil {
 		t.Fatal("comando inválido deveria dar erro")
 	}
 	st := Split("select * from obs_t where id = :id")[0]

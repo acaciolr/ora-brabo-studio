@@ -1,0 +1,5 @@
+/ora-brabo-studio
+/dist/
+*.test
+*.out
+.env

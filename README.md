@@ -75,12 +75,15 @@ O layout segue o de um estúdio gráfico Oracle, adaptado ao terminal:
 
 | | |
 |---|---|
-| <img src="docs/img/connect-pt.png" width="440"><br>**Conectar**: abre na entrada; abas Principal, Avançado e SSH; tipos Básico, TNS, Cloud Wallet, LDAP e URL | <img src="docs/img/worksheet-pt.png" width="440"><br>**Worksheet**: barra própria (▶ F9, ▷ F5, plano, autotrace, commit, rollback) e resultado em abas |
-| <img src="docs/img/menu-pt.png" width="440"><br>**Menus (F10)**: o menu Ferramentas abre as telas DBA mais usadas | <img src="docs/img/context-pt.png" width="440"><br>**Clique direito** numa conexão: conectar, worksheet, aba DBA, propriedades... |
-| <img src="docs/img/dba-pt.png" width="440"><br>**Aba DBA**: painel embaixo das conexões; a tela de tablespaces lista as ações por letra | <img src="docs/img/action-form-pt.png" width="440"><br>**Ação DBA**: formulário com os valores da linha selecionada já preenchidos |
+| <img src="docs/img/connect-pt.png" width="440"><br>**Conectar**: abre na entrada; abas Principal, Avançado e SSH; tipos Básico, TNS, Cloud Wallet, LDAP e URL | <img src="docs/img/worksheet-pt.png" width="440"><br>**Worksheet**: consulta real no esquema LOJA; barra própria (▶ F9, ▷ F5, plano, autotrace, commit, rollback) e resultado em abas |
+| <img src="docs/img/explain-pt.png" width="440"><br>**Plano de execução** (`F10`): o plano do otimizador para a consulta | <img src="docs/img/autotrace-pt.png" width="440"><br>**Autotrace**: executa e mostra o plano com as linhas reais (A-Rows) e as estatísticas |
+| <img src="docs/img/object-pt.png" width="440"><br>**Objeto**: colunas, dados, índices, restrições, grants, dependências e DDL; o navegador à esquerda | <img src="docs/img/menu-pt.png" width="440"><br>**Menus (F10)**: o menu Ferramentas abre as telas DBA mais usadas |
+| <img src="docs/img/context-pt.png" width="440"><br>**Clique direito** numa conexão: conectar, worksheet, aba DBA, propriedades... | <img src="docs/img/dba-pt.png" width="440"><br>**Aba DBA**: painel embaixo das conexões; a tela de tablespaces lista as ações por letra |
+| <img src="docs/img/sessions-pt.png" width="440"><br>**Sessões**: quem está conectado, esperando ou rodando, com kill, trace, plano e SQL | <img src="docs/img/topactivity-pt.png" width="440"><br>**Top Activity**: atividade por classe de espera, top SQL e top sessões, atualizando sozinho |
+| <img src="docs/img/instance-pt.png" width="440"><br>**Instância**: versão, uptime, memória, archive log e as ações de parar, suspender, flush | <img src="docs/img/action-form-pt.png" width="440"><br>**Ação DBA**: formulário com os valores da linha selecionada já preenchidos |
 | <img src="docs/img/action-preview-pt.png" width="440"><br>**Prévia**: o comando exato aparece antes de rodar e pode ser editado | <img src="docs/img/help-pt.png" width="440"><br>**F1**: ajuda completa dentro do programa |
 
-> Os prints saem da tela real do programa (`internal/ui/shots_test.go`, em PT e EN). Os dados da worksheet e da tela de tablespaces são de exemplo. Os prints com um banco de verdade entram quando terminar a validação ao vivo (veja o [Status](#status)).
+> Os prints saem do programa conectado num Oracle 26ai de verdade, com o esquema de demonstração LOJA (`internal/ui/testdata/loja.sql`) e uma carga leve rodando. O gerador é o `internal/ui/shots_live_test.go`, em PT e EN.
 
 ### O que ele faz
 
@@ -318,12 +321,15 @@ The layout follows a graphical Oracle studio, adapted to the terminal:
 
 | | |
 |---|---|
-| <img src="docs/img/connect-en.png" width="440"><br>**Connect**: opens at startup; Main, Advanced and SSH tabs; Basic, TNS, Cloud Wallet, LDAP and URL types | <img src="docs/img/worksheet-en.png" width="440"><br>**Worksheet**: its own toolbar (▶ F9, ▷ F5, plan, autotrace, commit, rollback) and tabbed results |
-| <img src="docs/img/menu-en.png" width="440"><br>**Menus (F10)**: the Tools menu opens the most used DBA screens | <img src="docs/img/context-en.png" width="440"><br>**Right click** on a connection: connect, worksheet, DBA tab, properties... |
-| <img src="docs/img/dba-en.png" width="440"><br>**DBA tab**: pane below the connections; the tablespaces screen lists its actions by letter | <img src="docs/img/action-form-en.png" width="440"><br>**DBA action**: form pre-filled from the selected row |
+| <img src="docs/img/connect-en.png" width="440"><br>**Connect**: opens at startup; Main, Advanced and SSH tabs; Basic, TNS, Cloud Wallet, LDAP and URL types | <img src="docs/img/worksheet-en.png" width="440"><br>**Worksheet**: a real query on the LOJA schema; its own toolbar (▶ F9, ▷ F5, plan, autotrace, commit, rollback) and tabbed results |
+| <img src="docs/img/explain-en.png" width="440"><br>**Explain plan** (`F10`): the optimizer plan for the query | <img src="docs/img/autotrace-en.png" width="440"><br>**Autotrace**: runs it and shows the plan with actual rows (A-Rows) and statistics |
+| <img src="docs/img/object-en.png" width="440"><br>**Object**: columns, data, indexes, constraints, grants, dependencies and DDL; the browser on the left | <img src="docs/img/menu-en.png" width="440"><br>**Menus (F10)**: the Tools menu opens the most used DBA screens |
+| <img src="docs/img/context-en.png" width="440"><br>**Right click** on a connection: connect, worksheet, DBA tab, properties... | <img src="docs/img/dba-en.png" width="440"><br>**DBA tab**: pane below the connections; the tablespaces screen lists its actions by letter |
+| <img src="docs/img/sessions-en.png" width="440"><br>**Sessions**: who is connected, waiting or running, with kill, trace, plan and SQL | <img src="docs/img/topactivity-en.png" width="440"><br>**Top Activity**: activity by wait class, top SQL and top sessions, refreshing on its own |
+| <img src="docs/img/instance-en.png" width="440"><br>**Instance**: version, uptime, memory, archive log and the stop, suspend and flush actions | <img src="docs/img/action-form-en.png" width="440"><br>**DBA action**: form pre-filled from the selected row |
 | <img src="docs/img/action-preview-en.png" width="440"><br>**Preview**: the exact command is shown, editable, before it runs | <img src="docs/img/help-en.png" width="440"><br>**F1**: full in-app help |
 
-> Screenshots come from the program's real screen (`internal/ui/shots_test.go`, PT and EN). The worksheet and tablespace data are samples; screenshots against a real database come after live validation.
+> Screenshots come from the program connected to a real Oracle 26ai, with the LOJA demo schema (`internal/ui/testdata/loja.sql`) and a light workload running. The generator is `internal/ui/shots_live_test.go`, PT and EN.
 
 ### Features
 

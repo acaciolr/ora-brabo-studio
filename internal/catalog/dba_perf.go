@@ -343,7 +343,8 @@ func perfNode() *Node {
 			return reportQ("select plan_table_output from table(dbms_xplan.display_sql_plan_baseline(sql_handle => %s, plan_name => %s))", Lit(r["SQL_HANDLE"]), Lit(r["PLAN_NAME"]))
 		}),
 		act('v', L("Evoluir (verificar planos novos)", "Evolve (verify new plans)"), true, nil, func(r Row, _ Vals) (Script, error) {
-			return Script{Kind: Report, Text: fmt.Sprintf("select dbms_spm.evolve_sql_plan_baseline(sql_handle => %s) from dual", Lit(r["SQL_HANDLE"]))}, nil
+			// o EVOLVE grava: não roda dentro de SELECT (ORA-14552)
+			return Script{Kind: Report, Text: printClob(fmt.Sprintf("DBMS_SPM.EVOLVE_SQL_PLAN_BASELINE(sql_handle => %s)", Lit(r["SQL_HANDLE"])))}, nil
 		}),
 		danger(act('x', L("Remover", "Drop"), true, nil, func(r Row, _ Vals) (Script, error) {
 			return sqlS("DECLARE\n  n PLS_INTEGER;\nBEGIN\n  n := DBMS_SPM.DROP_SQL_PLAN_BASELINE(sql_handle => %s, plan_name => %s);\nEND;", Lit(r["SQL_HANDLE"]), Lit(r["PLAN_NAME"]))

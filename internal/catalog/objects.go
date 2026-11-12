@@ -197,6 +197,44 @@ func Details(typ string) []Detail {
 	return []Detail{{Title: L("Detalhes", "Details"), SQL: `select * from all_objects where owner = :1 and object_name = :2`}, deps, ddl}
 }
 
+// linkAsOwner testa (test=true) ou remove um database link. Link privado só
+// o dono usa ou remove; se o dono é outro, roda numa procedure temporária no
+// esquema dele (definer rights) e apaga a procedure no fim.
+func linkAsOwner(owner, link string, test bool) string {
+	q := `"` + strings.ReplaceAll(link, `"`, `""`) + `"`
+	stmt := "DROP DATABASE LINK " + q
+	if owner == "PUBLIC" {
+		stmt = "DROP PUBLIC DATABASE LINK " + q
+	}
+	if test {
+		stmt = "SELECT 'OK: ' || SYS_CONTEXT('USERENV', 'DB_NAME') || ' " + L("em", "at") + " ' || TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS') FROM DUAL@" + q
+	}
+	run := "EXECUTE IMMEDIATE " + Lit(stmt)
+	if test {
+		run += " INTO r"
+	}
+	tmp := `"` + strings.ReplaceAll(owner, `"`, `""`) + `".ORABRABO_TMP_LINK`
+	proc := "CREATE OR REPLACE PROCEDURE " + tmp + " (r OUT VARCHAR2) AS BEGIN r := NULL; " + run + "; END;"
+	return `DECLARE
+  r VARCHAR2(4000);
+BEGIN
+  IF ` + Lit(owner) + ` IN ('PUBLIC', SYS_CONTEXT('USERENV', 'SESSION_USER')) THEN
+    ` + run + `;
+  ELSE
+    EXECUTE IMMEDIATE ` + Lit(proc) + `;
+    BEGIN
+      EXECUTE IMMEDIATE ` + Lit("BEGIN "+tmp+"(:r); END;") + ` USING OUT r;
+    EXCEPTION WHEN OTHERS THEN
+      EXECUTE IMMEDIATE ` + Lit("DROP PROCEDURE "+tmp) + `;
+      RAISE;
+    END;
+    EXECUTE IMMEDIATE ` + Lit("DROP PROCEDURE "+tmp) + `;
+  END IF;
+  IF r IS NOT NULL THEN DBMS_OUTPUT.PUT_LINE(r); END IF;
+END;
+/`
+}
+
 // ObjRow monta a linha usada pelas ações de objeto.
 func ObjRow(owner, name, typ string) Row {
 	return Row{"OWNER": owner, "OBJECT_NAME": name, "OBJECT_TYPE": typ}
@@ -216,7 +254,7 @@ func ObjectActions(typ string) []*Action {
 			case "TYPE":
 				s += iff(Yes(x["FORCE"]), " FORCE", "")
 			case "DATABASE LINK":
-				s = "DROP DATABASE LINK " + Ident(r["OBJECT_NAME"])
+				return sqlS("%s", linkAsOwner(r["OWNER"], r["OBJECT_NAME"], false))
 			case "JOB":
 				s = "BEGIN DBMS_SCHEDULER.DROP_JOB(" + Lit(r["OWNER"]+"."+r["OBJECT_NAME"]) + ", force => TRUE); END;"
 				return sqlS("%s", s)
@@ -374,7 +412,7 @@ func ObjectActions(typ string) []*Action {
 	case "DATABASE LINK":
 		return []*Action{
 			rep('t', L("Testar o link", "Test the link"), true, nil, func(r Row, _ Vals) (Script, error) {
-				return reportQ("select 'OK: ' || sys_context('userenv', 'db_name') || ' em ' || to_char(sysdate, 'yyyy-mm-dd hh24:mi:ss') from dual@%s", Ident(r["OBJECT_NAME"]))
+				return reportQ("%s", linkAsOwner(r["OWNER"], r["OBJECT_NAME"], true))
 			}),
 			drop(),
 		}

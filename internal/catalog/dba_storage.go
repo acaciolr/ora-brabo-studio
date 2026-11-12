@@ -183,7 +183,8 @@ func storageNode() *Node {
 				case "UNDO":
 					kind = "UNDO "
 				}
-				s := fmt.Sprintf("CREATE %s%sTABLESPACE %s %s %s", iff(Yes(x["BIGFILE"]), "BIGFILE ", ""), kind, IdentIn(x["NAME"]), file, spec)
+				// 23ai em diante o padrão virou BIGFILE: diz sempre qual é
+				s := fmt.Sprintf("CREATE %s%sTABLESPACE %s %s %s", iff(Yes(x["BIGFILE"]), "BIGFILE ", "SMALLFILE "), kind, IdentIn(x["NAME"]), file, spec)
 				if Yes(x["ENCRYPT"]) && x["TYPE"] == "PERMANENT" {
 					s += " ENCRYPTION ENCRYPT"
 				}
@@ -326,7 +327,7 @@ func storageNode() *Node {
 				}
 				s += " GROUP " + g
 			}
-			if f := strings.TrimSpace(x["FILES"]); f != "" {
+			if f := fileList(x["FILES"]); f != "" {
 				s += " (" + f + ")"
 			}
 			return sqlS("%s SIZE %s;", s, sz)
@@ -358,7 +359,7 @@ func storageNode() *Node {
 					}
 					s += " THREAD " + t
 				}
-				if f := strings.TrimSpace(x["FILES"]); f != "" {
+				if f := fileList(x["FILES"]); f != "" {
 					s += " (" + f + ")"
 				}
 				return sqlS("%s SIZE %s;", s, sz)
@@ -501,4 +502,20 @@ func storageNode() *Node {
 		{Title: L("Diretórios", "Directories"), View: dirs},
 		{Title: L("Maiores segmentos", "Largest segments"), View: segs},
 	}}
+}
+
+// fileList aceita a lista com ou sem aspas: a, 'b', +DATA viram 'a', 'b', '+DATA'.
+func fileList(s string) string {
+	var out []string
+	for _, f := range strings.Split(s, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if len(f) > 1 && strings.HasPrefix(f, "'") && strings.HasSuffix(f, "'") {
+			f = strings.ReplaceAll(f[1:len(f)-1], "''", "'")
+		}
+		out = append(out, Lit(f))
+	}
+	return strings.Join(out, ", ")
 }

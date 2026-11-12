@@ -118,3 +118,98 @@ explicar;`)
 	t.Log(a.Text)
 	run(t, s, "drop table obs_t purge;\ndrop procedure obs_p;\ndrop procedure obs_ok;")
 }
+
+// TestLiveConnTypes conecta de verdade por cada tipo que dá para montar só com
+// o banco de teste: básico (serviço e SID), TNS (pasta com tnsnames.ora), URL
+// personalizada (EZConnect, SID e descritor), proxy e túnel SSH (sshd local,
+// se a chave do usuário entrar em localhost).
+func TestLiveConnTypes(t *testing.T) {
+	base := liveConn(t, "system", "")
+	DataDir = t.TempDir()
+	who := func(c ConnInfo) (string, error) {
+		db, err := Open(c)
+		if err != nil {
+			return "", err
+		}
+		defer Close(db)
+		var u, con string
+		err = db.QueryRow("select sys_context('userenv', 'session_user'), sys_context('userenv', 'con_name') from dual").Scan(&u, &con)
+		return u + "@" + con, err
+	}
+	check := func(name string, c ConnInfo, want string) {
+		t.Helper()
+		got, err := who(c)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			return
+		}
+		if got != want {
+			t.Errorf("%s: conectou como %s, queria %s", name, got, want)
+			return
+		}
+		t.Logf("ok  %-28s %s", name, got)
+	}
+	port := strconv.Itoa(base.Port)
+	check("básico (serviço)", base, "SYSTEM@FREEPDB1")
+	sid := base
+	sid.Service, sid.SID = "", "FREE"
+	check("básico (SID)", sid, "SYSTEM@CDB$ROOT")
+	sysdba := base
+	sysdba.User, sysdba.Role = "sys", "SYSDBA"
+	check("básico SYSDBA", sysdba, "SYS@FREEPDB1")
+
+	dir := t.TempDir()
+	tns := "OBSPDB =\n  (DESCRIPTION =\n    (ADDRESS = (PROTOCOL = TCP)(HOST = " + base.Host + ")(PORT = " + port + "))\n    (CONNECT_DATA = (SERVICE_NAME = FREEPDB1)))\n" +
+		"OBSCDB.MUNDO = (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=" + base.Host + ")(PORT=" + port + "))(CONNECT_DATA=(SERVICE_NAME=FREE)))\n"
+	if err := os.WriteFile(dir+"/tnsnames.ora", []byte(tns), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tc := ConnInfo{Name: "tns", Type: TypeTNS, TNSAdmin: dir, TNS: "OBSPDB", User: "system", Password: base.Password}
+	check("TNS (alias)", tc, "SYSTEM@FREEPDB1")
+	tc.TNS = "obscdb.mundo"
+	check("TNS (alias com domínio)", tc, "SYSTEM@CDB$ROOT")
+	tc.TNS = "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=" + base.Host + ")(PORT=" + port + "))(CONNECT_DATA=(SERVICE_NAME=FREEPDB1)))"
+	check("TNS (descritor)", tc, "SYSTEM@FREEPDB1")
+
+	for _, u := range []string{
+		"jdbc:oracle:thin:@//" + base.Host + ":" + port + "/FREEPDB1",
+		base.Host + ":" + port + "/FREEPDB1",
+		"jdbc:oracle:thin:@" + base.Host + ":" + port + ":FREE",
+		"jdbc:oracle:thin:@OBSPDB?TNS_ADMIN=" + dir,
+	} {
+		want := "SYSTEM@FREEPDB1"
+		if strings.HasSuffix(u, ":FREE") {
+			want = "SYSTEM@CDB$ROOT"
+		}
+		check("URL "+u, ConnInfo{Name: "url", Type: TypeCustom, CustomURL: u, User: "system", Password: base.Password}, want)
+	}
+
+	// proxy: OBS_PXA entra como OBS_PXB
+	db, err := Open(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		"begin for u in (select username from dba_users where username in ('OBS_PXA', 'OBS_PXB')) loop execute immediate 'drop user ' || u.username || ' cascade'; end loop; end;",
+		`create user obs_pxa identified by "Obs#2026x"`, `create user obs_pxb identified by "Obs#2026y"`,
+		"grant create session to obs_pxa, obs_pxb", "alter user obs_pxb grant connect through obs_pxa",
+	} {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	Close(db)
+	px := base
+	px.User, px.Password, px.Proxy = "obs_pxa", "Obs#2026x", "obs_pxb"
+	check("proxy (obs_pxa[obs_pxb])", px, "OBS_PXB@FREEPDB1")
+
+	// túnel SSH pelo sshd desta máquina
+	if u := os.Getenv("USER"); u != "" && os.Getenv("OBS_TEST_SSH") != "" {
+		st := base
+		st.SSHHost, st.SSHPort, st.SSHUser = "127.0.0.1", 22, u
+		check("túnel SSH (127.0.0.1:22)", st, "SYSTEM@FREEPDB1")
+		if _, err := os.Stat(DataDir + "/known_hosts"); err != nil {
+			t.Errorf("túnel SSH: não gravou o known_hosts: %v", err)
+		}
+	}
+}

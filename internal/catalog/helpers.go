@@ -129,6 +129,27 @@ func iff(c bool, a, b string) string {
 }
 
 // plsql envolve comandos num bloco anônimo.
+// printClob roda uma função que devolve CLOB num bloco (para as que gravam e
+// não podem ir num SELECT) e manda o texto, linha a linha, para o DBMS_OUTPUT.
+func printClob(expr string) string {
+	return `DECLARE
+  r CLOB;
+  p PLS_INTEGER := 1;
+  n PLS_INTEGER;
+BEGIN
+  r := ` + expr + `;
+  WHILE r IS NOT NULL AND p <= DBMS_LOB.GETLENGTH(r) LOOP
+    n := DBMS_LOB.INSTR(r, CHR(10), p);
+    IF n = 0 THEN
+      n := DBMS_LOB.GETLENGTH(r) + 1;
+    END IF;
+    DBMS_OUTPUT.PUT_LINE(DBMS_LOB.SUBSTR(r, LEAST(n - p, 32000), p));
+    p := n + 1;
+  END LOOP;
+END;
+/`
+}
+
 func plsql(body string) string { return "BEGIN\n  " + strings.TrimSpace(body) + "\nEND;" }
 
 // pending envolve as chamadas do Resource Manager na pending area.

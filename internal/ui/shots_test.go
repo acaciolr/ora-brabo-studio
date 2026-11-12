@@ -297,27 +297,36 @@ func TestShots(t *testing.T) {
 		shot("help", "ORA BRABO Studio · F1")
 		h.stop()
 
-		if _, err := exec.LookPath("rsvg-convert"); err != nil {
-			t.Log("rsvg-convert não encontrado: ficam só os SVG")
-			continue
-		}
-		var frames []string
-		for _, s := range shots {
-			svg := filepath.Join(dir, s.name+"-"+lang+".svg")
-			out := strings.TrimSuffix(svg, ".svg") + ".png"
-			if b, err := exec.Command("rsvg-convert", "-o", out, svg).CombinedOutput(); err != nil {
-				t.Fatalf("rsvg-convert %s: %v %s", svg, err, b)
-			}
-			_ = os.Remove(svg)
-			if s.name != "help" && s.name != "action-form" {
-				frames = append(frames, out)
-			}
-		}
-		if err := makeGIF(filepath.Join(dir, "demo-"+lang+".gif"), frames, 220); err != nil {
-			t.Fatal(err)
-		}
+		renderShots(t, dir, lang, shots, "help", "action-form")
 	}
 	i18n.EN = false
+}
+
+// renderShots converte os SVG em PNG e junta os PNG (menos os de skip) no GIF.
+func renderShots(t *testing.T, dir, lang string, shots []shotInfo, skip ...string) {
+	if _, err := exec.LookPath("rsvg-convert"); err != nil {
+		t.Log("rsvg-convert não encontrado: ficam só os SVG")
+		return
+	}
+	var frames []string
+	for _, s := range shots {
+		svg := filepath.Join(dir, s.name+"-"+lang+".svg")
+		out := strings.TrimSuffix(svg, ".svg") + ".png"
+		if b, err := exec.Command("rsvg-convert", "-o", out, svg).CombinedOutput(); err != nil {
+			t.Fatalf("rsvg-convert %s: %v %s", svg, err, b)
+		}
+		_ = os.Remove(svg)
+		in := true
+		for _, k := range skip {
+			in = in && s.name != k
+		}
+		if in {
+			frames = append(frames, out)
+		}
+	}
+	if err := makeGIF(filepath.Join(dir, "demo-"+lang+".gif"), frames, 220); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // makeGIF junta os PNG num GIF animado (paleta com as cores mais usadas: a

@@ -95,7 +95,7 @@ func monitorNode() *Node {
 	sessions := v("mo.sessions", L("Sessões de usuário", "User sessions"), fmt.Sprintf(sessSQL, "where s.type = 'USER'"), sessActs()...)
 	sessions.Refresh = 5
 	sessions.KeyCol = "SID"
-	active := v("mo.active", L("Sessões ativas", "Active sessions"), fmt.Sprintf(sessSQL, "where s.type = 'USER' and s.status = 'ACTIVE' and s.wait_class <> 'Idle'"), sessActs()...)
+	active := v("mo.active", L("Sessões ativas", "Active sessions"), fmt.Sprintf(sessSQL, "where s.type = 'USER' and s.status = 'ACTIVE' and (s.state <> 'WAITING' or s.wait_class <> 'Idle')"), sessActs()...)
 	active.Refresh = 3
 	active.KeyCol = "SID"
 	allSess := v("mo.allsessions", L("Todas as sessões (com background)", "All sessions (with background)"), fmt.Sprintf(sessSQL, ""), sessActs()...)

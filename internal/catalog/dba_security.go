@@ -432,6 +432,9 @@ func securityNode() *Node {
 			return sqlS("NOAUDIT ALL ON %s;", Q2(r["OWNER"], r["OBJECT_NAME"]))
 		}),
 	)
+	tradHelp := L("Auditoria tradicional (AUDIT/NOAUDIT). Do 23ai em diante ela foi descontinuada: o Oracle não aceita AUDIT novo (ORA-46401); dá para ver e tirar (NOAUDIT) o que veio de versões antigas. Para auditar, use Políticas unificadas.",
+		"Traditional auditing (AUDIT/NOAUDIT). From 23ai on it is desupported: Oracle rejects new AUDIT (ORA-46401); you can still view and remove (NOAUDIT) what came from older releases. To audit, use Unified policies.")
+	stmtAudit.Help, privAudit.Help, objAudit.Help = tradHelp, tradHelp, tradHelp
 	auditCfg := paramsView("sec.auditcfg", L("Configuração de auditoria", "Audit settings"),
 		"where name like 'audit%' or name in ('unified_audit_common_systemlog','unified_audit_systemlog','os_roles','sec_case_sensitive_logon')")
 

@@ -157,6 +157,7 @@ func TestUIFlow(t *testing.T) {
 	h.key(tcell.KeyF9, 0, 0)
 	h.wait("Nova conexão ")
 	h.typeText("lab")
+	h.key(tcell.KeyTab, 0, 0) // autenticação
 	h.key(tcell.KeyTab, 0, 0)
 	h.typeText("system")
 	for i := 0; i < 5; i++ { // senha, salvar, papel, tipo → host
@@ -166,25 +167,20 @@ func TestUIFlow(t *testing.T) {
 	h.key(tcell.KeyTab, 0, 0)
 	h.key(tcell.KeyTab, 0, 0)
 	h.typeText("FREEPDB1")
-	h.a.tv.QueueUpdateDraw(func() {
-		f := h.a.root
-		_ = f
-	})
-	// botão Salvar: Tab até ele seria frágil; usa o form direto
-	var saved bool
-	h.a.tv.QueueUpdateDraw(func() {
-		name, ok := h.a.root.GetFrontPage()
-		if name != "connform" || ok == nil {
-			return
-		}
-		saved = true
-	})
-	h.sync()
-	if !saved {
-		t.Fatal("formulário não está na frente")
+
+	// abas Avançado e SSH guardam o que foi digitado no Principal
+	h.key(tcell.KeyPgDn, 0, tcell.ModCtrl)
+	h.wait("Usuário proxy (cliente)")
+	h.typeText("SCOTT")
+	h.key(tcell.KeyPgDn, 0, tcell.ModCtrl)
+	h.wait("Host SSH (vazio = sem túnel)")
+	h.key(tcell.KeyPgDn, 0, tcell.ModCtrl) // volta ao Principal
+	scr = h.wait("Service name")
+	if !strings.Contains(scr, "FREEPDB1") || !strings.Contains(scr, "127.0.0.1") {
+		t.Fatalf("campos se perderam ao trocar de aba:\n%s", scr)
 	}
 	// Enter no último campo não salva; aperta os botões com Tab
-	for i := 0; i < 7; i++ { // SID, wallet, SSL, RMAN, cor, Testar → Salvar (TNS fica cinza no Básico)
+	for i := 0; i < 12; i++ { // nome … SID, Testar → Salvar
 		h.key(tcell.KeyTab, 0, 0)
 	}
 	h.key(tcell.KeyEnter, 0, 0) // Salvar
@@ -192,11 +188,34 @@ func TestUIFlow(t *testing.T) {
 	if !strings.Contains(scr, "⛁ lab") {
 		t.Fatalf("conexão não apareceu na árvore:\n%s", scr)
 	}
-	if len(h.a.conns) != 1 || h.a.conns[0].Host != "127.0.0.1" || h.a.conns[0].Service != "FREEPDB1" || h.a.conns[0].User != "system" {
+	if len(h.a.conns) != 1 || h.a.conns[0].Host != "127.0.0.1" || h.a.conns[0].Service != "FREEPDB1" || h.a.conns[0].User != "system" || h.a.conns[0].Proxy != "SCOTT" {
 		t.Fatalf("conexão salva errada: %+v", h.a.conns)
 	}
 
 	h.key(tcell.KeyEscape, 0, 0) // fecha o diálogo
+
+	// cada tipo mostra os campos dele; SO esconde usuário e senha
+	for _, c := range []struct {
+		info ora.ConnInfo
+		want string
+	}{
+		{ora.ConnInfo{Type: ora.TypeTNS, TNS: "PROD"}, "Alias ou descritor"},
+		{ora.ConnInfo{Type: ora.TypeCloud}, "Arquivo do wallet (.zip)"},
+		{ora.ConnInfo{Type: ora.TypeLDAP}, "Contexto (ex.: dc=empresa,dc=com)"},
+		{ora.ConnInfo{Type: ora.TypeCustom}, "jdbc:oracle:thin:@//host:porta/serviço"},
+	} {
+		info := c.info
+		h.a.tv.QueueUpdateDraw(func() { h.a.connForm(&info) })
+		h.wait(c.want)
+		h.a.tv.QueueUpdateDraw(func() { h.a.CloseModal("connform") })
+	}
+	info := ora.ConnInfo{Auth: ora.AuthOS, Host: "x", Service: "y"}
+	h.a.tv.QueueUpdateDraw(func() { h.a.connForm(&info) })
+	scr = h.wait("Sistema operacional (SO)")
+	if strings.Contains(scr, "Senha  ") || strings.Contains(scr, "Usuário   ") {
+		t.Fatalf("SO não devia pedir usuário/senha:\n%s", scr)
+	}
+	h.a.tv.QueueUpdateDraw(func() { h.a.CloseModal("connform") })
 
 	// Ctrl+Q pergunta antes de sair
 	h.key(tcell.KeyCtrlQ, 0, 0)

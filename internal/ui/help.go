@@ -31,10 +31,14 @@ Cliente Oracle no terminal, leve e rápido: worksheet SQL, navegador de objetos 
   Na entrada abre o diálogo [::b]Conectar[::-]: conexões salvas à esquerda, propriedades à direita
   (Testar, Salvar, Conectar). F9 reabre o diálogo a qualquer momento.
   No painel: Enter conecta e abre a árvore.  e editar  c copiar  x remover  d desconectar  w nova worksheet
-  Conexão: básica (host/porta/serviço ou SID), TNS (alias do tnsnames.ora ou descritor),
-  papel SYSDBA/SYSOPER/SYSBACKUP/SYSDG/SYSKM, wallet, SSL e o comando do RMAN.
+  Tipos: Básico (host/porta/serviço ou SID), TNS (alias, com sugestões, ou descritor), Cloud Wallet (.zip do
+  Autonomous: lista os serviços), LDAP (servidor + contexto) e URL personalizada (jdbc:oracle:thin:@...).
+  Autenticação: usuário e senha, sistema operacional (SO) ou Kerberos (ticket do kinit).
+  Papel SYSDBA/SYSOPER/SYSBACKUP/SYSDG/SYSKM/SYSRAC/SYSASM. Ctrl+PgUp/PgDn troca as abas do diálogo:
+  Avançado (proxy, wallet e senha do wallet, SSL/TCPS, certificado, pasta do tnsnames, RMAN, cor) e
+  SSH (túnel por um bastion: chave, agente ou senha; a chave do host é conferida).
   Senhas salvas ficam cifradas (AES-GCM) em `+store.Dir()+`.
-  Importa o connections.json do SQL Developer (as senhas não vêm).
+  Importa o connections.json do SQL Developer com o tipo de cada conexão (as senhas não vêm).
 
 [#9fd3c7::b]Navegador de objetos[::-]
   Enter numa pasta lista; Enter no objeto abre o visualizador (Tab troca as abas).
@@ -83,10 +87,14 @@ Light and fast Oracle client for the terminal: SQL worksheet, object browser and
   At startup the [::b]Connect[::-] dialog opens: saved connections on the left, properties on the right
   (Test, Save, Connect). F9 reopens the dialog at any time.
   In the pane: Enter connects and opens the tree.  e edit  c copy  x delete  d disconnect  w new worksheet
-  Connection: basic (host/port/service or SID), TNS (tnsnames.ora alias or descriptor),
-  role SYSDBA/SYSOPER/SYSBACKUP/SYSDG/SYSKM, wallet, SSL and the RMAN command.
+  Types: Basic (host/port/service or SID), TNS (alias, with suggestions, or descriptor), Cloud Wallet
+  (Autonomous .zip: lists its services), LDAP (server + context) and Custom URL (jdbc:oracle:thin:@...).
+  Authentication: user and password, operating system (OS) or Kerberos (kinit ticket).
+  Role SYSDBA/SYSOPER/SYSBACKUP/SYSDG/SYSKM/SYSRAC/SYSASM. Ctrl+PgUp/PgDn switches the dialog tabs:
+  Advanced (proxy, wallet and wallet password, SSL/TCPS, certificate, tnsnames folder, RMAN, color) and
+  SSH (tunnel through a bastion: key, agent or password; the host key is checked).
   Saved passwords are encrypted (AES-GCM) in `+store.Dir()+`.
-  Imports SQL Developer's connections.json (passwords are not imported).
+  Imports SQL Developer's connections.json with each connection's type (passwords are not imported).
 
 [#9fd3c7::b]Object browser[::-]
   Enter on a folder lists it; Enter on an object opens the viewer (Tab switches tabs).

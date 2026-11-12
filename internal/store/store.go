@@ -88,7 +88,9 @@ func Open(sealed string) (string, error) {
 
 type diskConn struct {
 	ora.ConnInfo
-	Sealed string `json:"sealedPassword,omitempty"`
+	Sealed       string `json:"sealedPassword,omitempty"`
+	SealedWallet string `json:"sealedWalletPassword,omitempty"`
+	SealedSSH    string `json:"sealedSshPassword,omitempty"`
 }
 
 var mu sync.Mutex
@@ -111,10 +113,15 @@ func LoadConns() ([]ora.ConnInfo, error) {
 	out := make([]ora.ConnInfo, 0, len(d))
 	for _, c := range d {
 		ci := c.ConnInfo
-		ci.Password = ""
-		if c.Sealed != "" {
-			if p, err := Open(c.Sealed); err == nil {
-				ci.Password = p
+		ci.Password, ci.WalletPwd, ci.SSHPwd = "", "", ""
+		for _, x := range []struct {
+			sealed string
+			dst    *string
+		}{{c.Sealed, &ci.Password}, {c.SealedWallet, &ci.WalletPwd}, {c.SealedSSH, &ci.SSHPwd}} {
+			if x.sealed != "" {
+				if p, err := Open(x.sealed); err == nil {
+					*x.dst = p
+				}
 			}
 		}
 		out = append(out, ci)
@@ -133,13 +140,20 @@ func SaveConns(cs []ora.ConnInfo) error {
 	d := make([]diskConn, 0, len(cs))
 	for _, c := range cs {
 		dc := diskConn{ConnInfo: c}
-		dc.Password = ""
-		if c.SavePwd && c.Password != "" {
-			s, err := Seal(c.Password)
-			if err != nil {
-				return err
+		dc.Password, dc.WalletPwd, dc.SSHPwd = "", "", ""
+		if c.SavePwd {
+			for _, x := range []struct {
+				plain string
+				dst   *string
+			}{{c.Password, &dc.Sealed}, {c.WalletPwd, &dc.SealedWallet}, {c.SSHPwd, &dc.SealedSSH}} {
+				if x.plain != "" {
+					s, err := Seal(x.plain)
+					if err != nil {
+						return err
+					}
+					*x.dst = s
+				}
 			}
-			dc.Sealed = s
 		}
 		d = append(d, dc)
 	}
@@ -263,22 +277,85 @@ func ImportSQLDev(path string) ([]ora.ConnInfo, error) {
 		if r := strings.ToUpper(in["role"]); r != "" && r != "DEFAULT" {
 			ci.Role = r
 		}
-		if in["customUrl"] != "" {
-			u := in["customUrl"]
-			if i := strings.Index(u, "@"); i >= 0 {
-				u = u[i+1:]
-			}
-			ci.TNS = u
+		switch {
+		case strings.EqualFold(in["OS_AUTHENTICATION"], "true"):
+			ci.Auth, ci.User = ora.AuthOS, ""
+		case strings.EqualFold(in["KERBEROS_AUTHENTICATION"], "true"):
+			ci.Auth, ci.User = ora.AuthKerberos, ""
 		}
-		if t := in["OS_AUTHENTICATION"]; t == "true" {
-			continue
+		if p := in["PROXY_USER_NAME"]; p != "" {
+			ci.Proxy = p
 		}
-		if a := in["TNS_ALIAS"]; a != "" {
-			ci.TNS = a
-		}
+		mapSQLDevURL(&ci, strings.ToUpper(in["OracleConnectionType"]), in)
 		out = append(out, ci)
 	}
 	return out, nil
+}
+
+// mapSQLDevURL traduz o tipo de conexão do SQL Developer (BASIC, TNS, LDAP,
+// ADVANCED/URL, CLOUD) para o nosso.
+func mapSQLDevURL(ci *ora.ConnInfo, typ string, in map[string]string) {
+	u := strings.TrimSpace(in["customUrl"])
+	dest := u
+	if i := strings.Index(dest, "@"); i >= 0 {
+		dest = dest[i+1:]
+	}
+	low := strings.ToLower(dest)
+	var zip string
+	for k, v := range in {
+		lk := strings.ToLower(k)
+		if strings.HasSuffix(strings.ToLower(v), ".zip") && (strings.Contains(lk, "wallet") || strings.Contains(lk, "cloud") || strings.Contains(lk, "config")) {
+			zip = v
+		}
+	}
+	switch {
+	case zip != "" || strings.HasPrefix(typ, "CLOUD"):
+		ci.Type, ci.CloudZip = ora.TypeCloud, zip
+		svc := dest
+		if i := strings.IndexByte(svc, '?'); i >= 0 {
+			svc = svc[:i]
+		}
+		if svc == "" {
+			svc = in["serviceName"]
+		}
+		ci.TNS = svc
+	case strings.HasPrefix(low, "ldap://") || strings.HasPrefix(low, "ldaps://") || typ == "LDAP":
+		// jdbc:oracle:thin:@ldap://host:389/servico,cn=OracleContext,dc=empresa,dc=com
+		ci.Type = ora.TypeLDAP
+		sch := "ldap://"
+		if strings.HasPrefix(low, "ldaps://") {
+			sch = "ldaps://"
+		}
+		rest := dest[min(len(sch), len(dest)):]
+		if host, path, ok := strings.Cut(rest, "/"); ok {
+			ci.LDAPServer = host
+			if sch == "ldaps://" {
+				ci.LDAPServer = sch + host
+			}
+			svc, ctx, _ := strings.Cut(path, ",")
+			ci.TNS = svc
+			if l := strings.ToLower(ctx); strings.HasPrefix(l, "cn=oraclecontext,") {
+				ctx = ctx[len("cn=OracleContext,"):]
+			}
+			ci.LDAPContext = strings.TrimSpace(ctx)
+		}
+	case typ == "BASIC" || typ == "" && in["hostname"] != "":
+		// básica: fica com host/porta/serviço
+	case typ == "TNS" || in["TNS_ALIAS"] != "":
+		ci.Type, ci.TNS = ora.TypeTNS, dest
+		if a := in["TNS_ALIAS"]; a != "" {
+			ci.TNS = a
+		}
+	case u != "":
+		if strings.HasPrefix(dest, "(") {
+			ci.Type, ci.TNS = ora.TypeTNS, dest
+		} else {
+			ci.Type, ci.CustomURL = ora.TypeCustom, u
+		}
+	}
+	if ci.Type != "" {
+		ci.Host, ci.Service, ci.SID = "", "", ""
+	}
 }
 
 // SQLDevConnFiles acha connections.json de instalações do SQL Developer.

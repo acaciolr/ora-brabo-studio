@@ -105,12 +105,13 @@ func check(args []string) int {
 	if info.Password == "" {
 		info.Password = os.Getenv("ORA_BRABO_PASSWORD")
 	}
+	ora.DataDir = store.Dir()
 	db, err := ora.Open(info)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	defer db.Close()
+	defer ora.Close(db)
 	c := &ui.Conn{Info: info, DB: db}
 	ok, fail := 0, 0
 	seen := map[string]bool{}

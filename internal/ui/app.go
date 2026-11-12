@@ -76,6 +76,7 @@ type App struct {
 // New monta a aplicação (screen nil = terminal de verdade).
 func New(screen tcell.Screen) *App {
 	a := &App{tv: tview.NewApplication(), open: map[string]*Conn{}}
+	ora.DataDir = store.Dir()
 	if screen != nil {
 		a.tv.SetScreen(screen)
 	}
@@ -484,7 +485,7 @@ func (a *App) closeAll() {
 	}
 	a.openMu.Lock()
 	for _, c := range a.open {
-		c.DB.Close()
+		ora.Close(c.DB)
 	}
 	a.openMu.Unlock()
 }
@@ -630,7 +631,7 @@ func (a *App) Connect(name string, done func(*Conn)) {
 		a.Errf(L("conexão %s não existe", "connection %s does not exist"), name)
 		return
 	}
-	if info.Password == "" {
+	if info.NeedsPassword() {
 		a.askPassword(info, func(pw string) {
 			info.Password = pw
 			a.doConnect(info, done)
@@ -686,7 +687,7 @@ func (a *App) Disconnect(name string) {
 	a.openMu.Lock()
 	delete(a.open, name)
 	a.openMu.Unlock()
-	c.DB.Close()
+	ora.Close(c.DB)
 	a.Msg(L("Desconectado de ", "Disconnected from ") + name)
 }
 

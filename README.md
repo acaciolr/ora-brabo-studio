@@ -75,7 +75,7 @@ O layout segue o de um estúdio gráfico Oracle, adaptado ao terminal:
 
 | | |
 |---|---|
-| <img src="docs/img/connect-pt.png" width="440"><br>**Conectar**: abre na entrada, com as conexões salvas e as propriedades (Testar, Salvar, Conectar) | <img src="docs/img/worksheet-pt.png" width="440"><br>**Worksheet**: barra própria (▶ F9, ▷ F5, plano, autotrace, commit, rollback) e resultado em abas |
+| <img src="docs/img/connect-pt.png" width="440"><br>**Conectar**: abre na entrada; abas Principal, Avançado e SSH; tipos Básico, TNS, Cloud Wallet, LDAP e URL | <img src="docs/img/worksheet-pt.png" width="440"><br>**Worksheet**: barra própria (▶ F9, ▷ F5, plano, autotrace, commit, rollback) e resultado em abas |
 | <img src="docs/img/menu-pt.png" width="440"><br>**Menus (F10)**: o menu Ferramentas abre as telas DBA mais usadas | <img src="docs/img/context-pt.png" width="440"><br>**Clique direito** numa conexão: conectar, worksheet, aba DBA, propriedades... |
 | <img src="docs/img/dba-pt.png" width="440"><br>**Aba DBA**: painel embaixo das conexões; a tela de tablespaces lista as ações por letra | <img src="docs/img/action-form-pt.png" width="440"><br>**Ação DBA**: formulário com os valores da linha selecionada já preenchidos |
 | <img src="docs/img/action-preview-pt.png" width="440"><br>**Prévia**: o comando exato aparece antes de rodar e pode ser editado | <img src="docs/img/help-pt.png" width="440"><br>**F1**: ajuda completa dentro do programa |
@@ -87,11 +87,23 @@ O layout segue o de um estúdio gráfico Oracle, adaptado ao terminal:
 <details open>
 <summary><b>Conexões</b></summary>
 
-- Básica (host, porta, service name ou SID) ou **TNS**: alias lido do `tnsnames.ora` (`TNS_ADMIN`, `ORACLE_HOME`) ou descritor colado.
-- Papéis **SYSDBA, SYSOPER, SYSBACKUP, SYSDG, SYSKM**; **wallet** (pasta) e **SSL/TCPS**.
+Os mesmos tipos de conexão do SQL Developer:
+
+| Tipo | Como funciona |
+|---|---|
+| **Básico** | host, porta e service name ou SID |
+| **TNS** | alias do `tnsnames.ora` (com sugestões ao digitar) ou descritor colado. A pasta pode ser a da conexão, a do `TNS_ADMIN` ou a do `ORACLE_HOME` |
+| **Cloud Wallet** | o `.zip` do Autonomous Database. O programa lista os serviços (`_high`, `_low`...), extrai o wallet numa pasta própria e conecta por TCPS |
+| **LDAP** | servidor (`host:389`, `636` ou `ldaps://`) e contexto. O descritor vem do diretório (OID ou AD), e os serviços aparecem como sugestão |
+| **URL personalizada** | `jdbc:oracle:thin:@//host:porta/serviço`, `@host:porta:SID`, `@alias`, `@(DESCRIPTION=...)` ou `oracle://...` |
+
+- **Autenticação**: usuário e senha, **sistema operacional** (usuário externo) ou **Kerberos** (ticket do `kinit`).
+- **Proxy** (`usuário[cliente]`); papéis **SYSDBA, SYSOPER, SYSBACKUP, SYSDG, SYSKM, SYSRAC, SYSASM**.
+- **Wallet** (pasta, com senha do wallet ou credencial guardada nele), **SSL/TCPS** e verificação do certificado.
+- **Túnel SSH** por um bastion, como o *SSH host* do SQL Developer. Aceita chave (com frase), agente SSH ou senha; a chave do host é gravada no primeiro acesso e conferida nos seguintes.
 - **Cor por conexão** (a aba de PROD em vermelho), que aparece nas abas e no topo.
 - Senha opcionalmente salva, **cifrada com AES-GCM** e com chave local `0600`. Sem senha salva, ela é pedida a cada conexão.
-- **Importa o `connections.json` do SQL Developer**. As senhas não vêm.
+- **Importa o `connections.json` do SQL Developer**, com o tipo de cada conexão (básica, TNS, LDAP, URL, Cloud, SO, Kerberos e proxy). As senhas não vêm.
 - **Comando RMAN** por conexão: `ssh oracle@db01 '. ~/.bash_profile; rman target /'`, `docker exec -i meu-oracle rman target /` ou local.
 
 </details>
@@ -269,7 +281,9 @@ Bugs e sugestões são bem-vindos nas *issues*.
 
 **Precisa do Oracle Client?** Não. O driver é o go-ora, que fala o protocolo do Oracle direto.
 
-**Funciona com Autonomous / wallet?** Sim: informe a pasta do wallet e use TCPS.
+**Funciona com Autonomous / wallet?** Sim. Escolha o tipo *Cloud Wallet*, aponte o `.zip` e escolha o serviço.
+
+**E banco atrás de bastion?** Use a aba *SSH* da conexão: o programa abre o túnel sozinho, sem `ssh -L`.
 
 **E o RMAN, se o banco é remoto?** O RMAN roda onde o banco está. Configure o *Comando RMAN* da conexão (via `ssh` ou `docker exec`) e o programa envia o script pela entrada padrão, mostrando a saída ao vivo.
 
@@ -304,7 +318,7 @@ The layout follows a graphical Oracle studio, adapted to the terminal:
 
 | | |
 |---|---|
-| <img src="docs/img/connect-en.png" width="440"><br>**Connect**: opens at startup with the saved connections and their properties (Test, Save, Connect) | <img src="docs/img/worksheet-en.png" width="440"><br>**Worksheet**: its own toolbar (▶ F9, ▷ F5, plan, autotrace, commit, rollback) and tabbed results |
+| <img src="docs/img/connect-en.png" width="440"><br>**Connect**: opens at startup; Main, Advanced and SSH tabs; Basic, TNS, Cloud Wallet, LDAP and URL types | <img src="docs/img/worksheet-en.png" width="440"><br>**Worksheet**: its own toolbar (▶ F9, ▷ F5, plan, autotrace, commit, rollback) and tabbed results |
 | <img src="docs/img/menu-en.png" width="440"><br>**Menus (F10)**: the Tools menu opens the most used DBA screens | <img src="docs/img/context-en.png" width="440"><br>**Right click** on a connection: connect, worksheet, DBA tab, properties... |
 | <img src="docs/img/dba-en.png" width="440"><br>**DBA tab**: pane below the connections; the tablespaces screen lists its actions by letter | <img src="docs/img/action-form-en.png" width="440"><br>**DBA action**: form pre-filled from the selected row |
 | <img src="docs/img/action-preview-en.png" width="440"><br>**Preview**: the exact command is shown, editable, before it runs | <img src="docs/img/help-en.png" width="440"><br>**F1**: full in-app help |
@@ -314,11 +328,18 @@ The layout follows a graphical Oracle studio, adapted to the terminal:
 ### Features
 
 - **Connections**
-  - Connection types: basic, TNS alias or descriptor.
-  - Roles: SYSDBA, SYSOPER, SYSBACKUP, SYSDG, SYSKM.
-  - Wallet, SSL/TCPS and a color per connection.
+  - The same connection types as SQL Developer:
+    - **Basic**;
+    - **TNS** (alias with suggestions or descriptor, per-connection tnsnames folder);
+    - **Cloud Wallet** (Autonomous `.zip`: lists the services and connects over TCPS);
+    - **LDAP** (OID/AD lookup);
+    - **Custom URL** (`jdbc:oracle:thin:@...`, `oracle://...`).
+  - Authentication: user/password, **OS** or **Kerberos**; **proxy** user.
+  - Roles: SYSDBA, SYSOPER, SYSBACKUP, SYSDG, SYSKM, SYSRAC, SYSASM.
+  - Wallet (with wallet password or stored credential), SSL/TCPS with optional certificate verification, and a color per connection.
+  - **SSH tunnel** through a bastion: key, agent or password; the host key is checked.
   - Passwords can be saved, encrypted with AES-GCM.
-  - Imports SQL Developer connections.
+  - Imports SQL Developer connections, including their type.
   - Per-connection RMAN command (ssh / docker exec / local).
 - **Worksheet**
   - One session per tab, **no autocommit** (F11/F12), with a pending-changes warning.

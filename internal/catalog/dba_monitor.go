@@ -169,8 +169,9 @@ func monitorNode() *Node {
 	alertErr := v("mo.alert.err", L("Alert log: só erros", "Alert log: errors only"), top(500, `select originating_timestamp ts, message_level lvl, message_text
 	   from v$diag_alert_ext where message_text like '%ORA-%' or message_text like '%TNS-%' or message_text like '%Error%'
 	  order by originating_timestamp desc`))
-	incidents := v("mo.incidents", L("Incidentes (ADR)", "Incidents (ADR)"), `select incident_id, problem_key, create_time, status, flood_controlled
-	   from v$diag_incident order by create_time desc`)
+	incidents := v("mo.incidents", L("Incidentes (ADR)", "Incidents (ADR)"), `select i.incident_id, p.problem_key, i.create_time, i.status, i.error_number, i.flood_controlled
+	   from v$diag_incident i left join v$diag_problem p on p.problem_id = i.problem_id
+	  order by i.create_time desc`)
 
 	errs := v("mo.errors", L("Erros de compilação", "Compilation errors"), `select owner, name, type, line, position, attribute, text
 	   from dba_errors where owner = :1 and name = :2 order by sequence`)

@@ -130,8 +130,16 @@ func check(args []string) int {
 			}
 		}
 	})
+	na := 0
 	for _, v := range views {
 		t0 := time.Now()
+		if q := v.RequiresSQL(); q != "" {
+			if r := ui.Query(c, q, nil, 1); r.Err == nil && len(r.Rows) > 0 && r.Rows[0][0].V == "0" {
+				na++
+				fmt.Printf("N/D   %-28s %s\n      %s\n", v.ID, v.Title, v.Missing)
+				continue
+			}
+		}
 		r := ui.Query(c, v.SQL, nilArgs(v.SQL), 50)
 		el := time.Since(t0).Round(time.Millisecond)
 		if r.Err != nil {
@@ -144,7 +152,7 @@ func check(args []string) int {
 			fmt.Printf("ok    %-28s %-40s %4d %s\n", v.ID, v.Title, len(r.Rows), el)
 		}
 	}
-	fmt.Printf(i18n.L("\n%d telas: %d ok, %d com erro\n", "\n%d screens: %d ok, %d with errors\n"), ok+fail, ok, fail)
+	fmt.Printf(i18n.L("\n%d telas: %d ok, %d com erro, %d não disponíveis nesta base\n", "\n%d screens: %d ok, %d with errors, %d not available on this database\n"), ok+fail+na, ok, fail, na)
 	if fail > 0 {
 		return 1
 	}

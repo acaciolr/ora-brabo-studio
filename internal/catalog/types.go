@@ -86,6 +86,22 @@ type View struct {
 	Special string // "instance" (painel), "topactivity", "text" (relatório)
 	Help    string
 	KeyCol  string // coluna que identifica a linha (para manter a seleção ao atualizar)
+	// Requires: objeto de que a tela depende (ex.: PERFSTAT.STATS$SNAPSHOT,
+	// DBA_TABLESPACE_SETS). Se não existir, a tela avisa em vez de dar erro.
+	Requires string
+	Missing  string // o que fazer quando falta (ex.: instalar o Statspack)
+}
+
+// RequiresSQL devolve a consulta que conta se o objeto exigido existe.
+func (v *View) RequiresSQL() string {
+	if v.Requires == "" {
+		return ""
+	}
+	owner, name, ok := strings.Cut(strings.ToUpper(v.Requires), ".")
+	if !ok {
+		return "select count(*) from all_objects where object_name = " + Lit(owner) + " and owner in ('SYS', 'PUBLIC')"
+	}
+	return "select count(*) from all_objects where owner = " + Lit(owner) + " and object_name = " + Lit(name)
 }
 
 // Node é um nó da árvore.

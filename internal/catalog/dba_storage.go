@@ -477,6 +477,8 @@ func storageNode() *Node {
 
 	tsSets := v("st.tssets", "Tablespace sets", `select * from dba_tablespace_sets`)
 	tsSets.Help = L("Só existe em bancos com sharding.", "Only exists on sharded databases.")
+	tsSets.Requires = "DBA_TABLESPACE_SETS"
+	tsSets.Missing = tsSets.Help
 
 	return &Node{Title: L("Armazenamento", "Storage"), Children: []*Node{
 		{Title: "Tablespaces", View: ts},

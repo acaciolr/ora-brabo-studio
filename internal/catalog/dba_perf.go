@@ -306,6 +306,9 @@ func perfNode() *Node {
 	)
 	stSnaps.Help = L("Alternativa sem licença ao AWR. Instale com @?/rdbms/admin/spcreate.sql; o relatório sai com @?/rdbms/admin/spreport.sql.",
 		"License-free alternative to AWR. Install with @?/rdbms/admin/spcreate.sql; the report comes from @?/rdbms/admin/spreport.sql.")
+	stSnaps.Requires = "PERFSTAT.STATS$SNAPSHOT"
+	stSnaps.Missing = L("Statspack não instalado: como SYSDBA, rode @?/rdbms/admin/spcreate.sql (cria o usuário PERFSTAT).",
+		"Statspack not installed: as SYSDBA, run @?/rdbms/admin/spcreate.sql (creates the PERFSTAT user).")
 
 	sqlmon := v("pf.sqlmon", "SQL Monitor", top(200, `select sql_id, status, username, sql_exec_start, round(elapsed_time/1e6, 1) ela_s,
 	        round(cpu_time/1e6, 1) cpu_s, buffer_gets, disk_reads, px_servers_allocated px, substr(sql_text, 1, 120) sql_text, sql_exec_id

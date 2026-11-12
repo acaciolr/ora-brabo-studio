@@ -565,11 +565,15 @@ func (s *Session) Autotrace(st Stmt, binds []any) Result {
 			"autotrace needs SELECT on V$MYSTAT/V$STATNAME (SELECT_CATALOG_ROLE): %v"), err)}
 	}
 	_, _ = e.ExecContext(ctx, "ALTER SESSION SET statistics_level = ALL")
+	// marca o comando para achar o cursor dele no V$SQL (o prev_sql_id da
+	// sessão aponta para os comandos internos do driver)
+	tag := fmt.Sprintf("/* orabrabo-autotrace %d */ ", time.Now().UnixNano())
+	text := tag + st.Text
 	var r Result
 	if st.Kind == KindQuery {
-		r = s.query(ctx, e, st.Text, binds, 0) // busca tudo, como o autotrace
+		r = s.query(ctx, e, text, binds, 0) // busca tudo, como o autotrace
 	} else {
-		res, err := e.ExecContext(ctx, st.Text, binds...)
+		res, err := e.ExecContext(ctx, text, binds...)
 		if err != nil {
 			r.Err = err
 		} else {
@@ -580,9 +584,14 @@ func (s *Session) Autotrace(st Stmt, binds []any) Result {
 	r.Stmt = st
 	var sqlID string
 	var child int64
-	_ = e.QueryRowContext(ctx, "select prev_sql_id, prev_child_number from v$session where sid = sys_context('userenv','sid')").Scan(&sqlID, &child)
+	idErr := e.QueryRowContext(ctx, `select sql_id, child_number from v$sql
+	  where sql_text like :1 and sql_text not like '%v$sql%'
+	  order by last_active_time desc fetch first 1 rows only`, strings.TrimSpace(tag)+"%").Scan(&sqlID, &child)
 	_, _ = e.ExecContext(ctx, "ALTER SESSION SET statistics_level = TYPICAL")
 	var b strings.Builder
+	if idErr != nil {
+		b.WriteString(L("Plano indisponível: ", "Plan unavailable: ") + idErr.Error() + "\n")
+	}
 	if sqlID != "" {
 		plan, err := queryText(ctx, e, "SELECT plan_table_output FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(:1, :2, 'ALLSTATS LAST'))", sqlID, child)
 		if err != nil {

@@ -152,6 +152,17 @@ func (l *ListView) Load() {
 	l.drawInfo(L("carregando…", "loading…"))
 	c, v := l.c, l.v
 	l.a.Go(func() func() {
+		if q := v.RequiresSQL(); q != "" {
+			if r := Query(c, q, nil, 1); r.Err == nil && len(r.Rows) > 0 && r.Rows[0][0].V == "0" {
+				return func() {
+					l.loading = false
+					l.drawInfo("[yellow]" + L("Não disponível nesta base", "Not available on this database") + "[-]")
+					msg := v.Missing
+					l.text.SetText(msg)
+					l.grid.SetResult(ora.Result{Cols: []string{L("AVISO", "NOTICE")}, Rows: [][]ora.Cell{{{V: msg}}}})
+				}
+			}
+		}
 		r := Query(c, v.SQL, v.Args, 5000)
 		return func() {
 			l.loading = false

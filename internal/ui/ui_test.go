@@ -241,4 +241,6 @@ func TestActionPreviewAndDanger(t *testing.T) {
 	}
 }
 
-func oraInfo(name string) ora.ConnInfo { return ora.ConnInfo{Name: name, User: "hr", Host: "x", Port: 1521, Service: "s"} }
+func oraInfo(name string) ora.ConnInfo {
+	return ora.ConnInfo{Name: name, User: "hr", Host: "x", Port: 1521, Service: "s"}
+}

@@ -192,9 +192,18 @@ func backupNode() *Node {
 				}
 				return sqlS("ALTER SYSTEM SET db_recovery_file_dest_size = %s SCOPE = BOTH;", sz)
 			}),
-		act('d', L("Local da FRA", "FRA location"), false, []Field{fR("DEST", L("Caminho ou +DG", "Path or +DG"), "+FRA")},
+		act('d', L("Local da FRA", "FRA location"), false, []Field{fR("DEST", L("Caminho ou +DG", "Path or +DG"), "+FRA"),
+			fT("SIZE", L("Tamanho (vazio = não muda; a FRA nova precisa)", "Size (empty = keep; a new FRA needs it)"), "")},
 			func(_ Row, x Vals) (Script, error) {
-				return sqlS("ALTER SYSTEM SET db_recovery_file_dest = %s SCOPE = BOTH;", Lit(x["DEST"]))
+				s := ""
+				if strings.TrimSpace(x["SIZE"]) != "" { // o Oracle exige o tamanho antes do local (ORA-19802)
+					sz, err := Size("SIZE", x["SIZE"])
+					if err != nil {
+						return Script{}, err
+					}
+					s = "ALTER SYSTEM SET db_recovery_file_dest_size = " + sz + " SCOPE = BOTH;\n"
+				}
+				return sqlS("%sALTER SYSTEM SET db_recovery_file_dest = %s SCOPE = BOTH;", s, Lit(x["DEST"]))
 			}),
 		act('m', L("Meta de recuperação de instância (MTTR)", "Instance recovery target (MTTR)"), false, []Field{fR("SEC", L("Segundos", "Seconds"), "300")},
 			func(_ Row, x Vals) (Script, error) {
@@ -210,7 +219,7 @@ func backupNode() *Node {
 			}),
 		danger(act('A', L("Ligar ARCHIVELOG (reinicia, RMAN)", "Enable ARCHIVELOG (restarts, RMAN)"), false, nil,
 			func(Row, Vals) (Script, error) { return archivelogScript(true) }), ""),
-		danger(act('N', L("Desligar ARCHIVELOG (reinicia, RMAN)", "Disable ARCHIVELOG (restarts, RMAN)"), false, nil,
+		danger(act('N', L("Desligar ARCHIVELOG (e o flashback; reinicia, RMAN)", "Disable ARCHIVELOG (and flashback; restarts, RMAN)"), false, nil,
 			func(Row, Vals) (Script, error) { return archivelogScript(false) }), ""),
 		act('b', "Flashback Database ON/OFF", false, []Field{fC("MODE", "", "ON", "ON", "OFF")},
 			func(_ Row, x Vals) (Script, error) { return sqlS("ALTER DATABASE FLASHBACK %s;", x["MODE"]) }),
@@ -458,7 +467,7 @@ func backupNode() *Node {
 			}
 			return rmanS("SHUTDOWN IMMEDIATE;\nSTARTUP MOUNT;\nFLASHBACK DATABASE TO %s;\nALTER DATABASE OPEN RESETLOGS;", to)
 		}), ""),
-		rep('X', L("Falhas detectadas (LIST FAILURE)", "Detected failures (LIST FAILURE)"), false, nil, func(Row, Vals) (Script, error) {
+		rep('X', L("Falhas detectadas (LIST FAILURE, até 21c)", "Detected failures (LIST FAILURE, up to 21c)"), false, nil, func(Row, Vals) (Script, error) {
 			return Script{Kind: RMAN, Text: "LIST FAILURE;"}, nil
 		}),
 	)

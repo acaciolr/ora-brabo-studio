@@ -75,7 +75,11 @@ func archivelogScript(on bool) (Script, error) {
 	if on {
 		mode = "ARCHIVELOG"
 	}
-	return rmanS("SHUTDOWN IMMEDIATE;\nSTARTUP MOUNT;\nSQL 'ALTER DATABASE %s';\nALTER DATABASE OPEN;", mode)
+	fb := ""
+	if !on { // sem archive não existe flashback: o Oracle exige desligar antes (ORA-38774)
+		fb = "SQL 'ALTER DATABASE FLASHBACK OFF';\n"
+	}
+	return rmanS("SHUTDOWN IMMEDIATE;\nSTARTUP MOUNT;\n%sSQL 'ALTER DATABASE %s';\nALTER DATABASE OPEN;", fb, mode)
 }
 
 func databaseNode() *Node {
@@ -85,7 +89,7 @@ func databaseNode() *Node {
 	   from v$database`,
 		danger(act('A', L("Ligar ARCHIVELOG (reinicia o banco, RMAN)", "Enable ARCHIVELOG (restarts the database, RMAN)"), false, nil,
 			func(Row, Vals) (Script, error) { return archivelogScript(true) }), ""),
-		danger(act('N', L("Desligar ARCHIVELOG (reinicia o banco, RMAN)", "Disable ARCHIVELOG (restarts the database, RMAN)"), false, nil,
+		danger(act('N', L("Desligar ARCHIVELOG (e o flashback; reinicia o banco, RMAN)", "Disable ARCHIVELOG (and flashback; restarts the database, RMAN)"), false, nil,
 			func(Row, Vals) (Script, error) { return archivelogScript(false) }), ""),
 		act('f', L("Flashback Database ON/OFF", "Flashback Database ON/OFF"), false, []Field{fC("MODE", "", "ON", "ON", "OFF")},
 			func(_ Row, x Vals) (Script, error) { return sqlS("ALTER DATABASE FLASHBACK %s;", x["MODE"]) }),
@@ -233,7 +237,7 @@ func databaseNode() *Node {
 			fR("XML", L("Arquivo XML", "XML file"), "/tmp/{NAME}.xml"),
 		}, func(r Row, x Vals) (Script, error) {
 			n := Ident(r["NAME"])
-			return sqlS("ALTER PLUGGABLE DATABASE %s CLOSE IMMEDIATE;\nALTER PLUGGABLE DATABASE %s UNPLUG INTO %s;", n, n, Lit(x["XML"]))
+			return sqlS("%s\nALTER PLUGGABLE DATABASE %s UNPLUG INTO %s;", closePDB(n), n, Lit(x["XML"]))
 		}), "NAME"),
 		act('p', L("Plug a partir de XML", "Plug from XML"), false, []Field{
 			fR("NAME", L("Nome da PDB", "PDB name"), ""), fR("XML", L("Arquivo XML", "XML file"), ""),
@@ -258,7 +262,7 @@ func databaseNode() *Node {
 			fC("FILES", L("Arquivos", "Files"), "INCLUDING DATAFILES", "INCLUDING DATAFILES", "KEEP DATAFILES"),
 		}, func(r Row, x Vals) (Script, error) {
 			n := Ident(r["NAME"])
-			return sqlS("ALTER PLUGGABLE DATABASE %s CLOSE IMMEDIATE;\nDROP PLUGGABLE DATABASE %s %s;", n, n, x["FILES"])
+			return sqlS("%s\nDROP PLUGGABLE DATABASE %s %s;", closePDB(n), n, x["FILES"])
 		}), "NAME"),
 	)
 	pdbs.Needs = "cdb"
@@ -272,7 +276,7 @@ func databaseNode() *Node {
 		{Title: L("Banco", "Database"), View: db},
 		{Title: L("Instância", "Instance"), View: inst},
 		{Title: L("Parâmetros", "Parameters"), View: paramsView("db.params", L("Parâmetros", "Parameters"), "")},
-		{Title: L("Parâmetros alterados", "Modified parameters"), View: paramsView("db.params.mod", L("Parâmetros alterados", "Modified parameters"), "where isdefault = 'FALSE'")},
+		{Title: L("Parâmetros alterados", "Modified parameters"), View: paramsView("db.params.mod", L("Parâmetros alterados", "Modified parameters"), "where isdefault = 'FALSE' or ismodified <> 'FALSE'")},
 		{Title: L("Serviços", "Services"), View: svcs},
 		{Title: "Pluggable databases", View: pdbs},
 		{Title: L("Componentes (registry)", "Components (registry)"), View: v("db.registry", L("Componentes", "Components"),
@@ -283,4 +287,10 @@ func databaseNode() *Node {
 			   from dba_feature_usage_statistics where detected_usages > 0 order by name`)},
 		{Title: L("Versão", "Version"), View: v("db.version", L("Versão", "Version"), `select banner from v$version`)},
 	}}
+}
+
+// closePDB fecha a PDB antes do unplug/drop; se já estava fechada (ORA-65020), segue.
+func closePDB(n string) string {
+	return "BEGIN\n  EXECUTE IMMEDIATE " + Lit("ALTER PLUGGABLE DATABASE "+n+" CLOSE IMMEDIATE") +
+		";\nEXCEPTION\n  WHEN OTHERS THEN\n    IF SQLCODE <> -65020 THEN\n      RAISE;\n    END IF;\nEND;\n/"
 }

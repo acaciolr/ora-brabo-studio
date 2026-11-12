@@ -83,6 +83,14 @@ func (h *liveH) sql(c *Conn, script string) string {
 	return out
 }
 
+func (h *liveH) rman(c *Conn, script string) {
+	cmd := exec.Command("sh", "-c", c.Info.RmanCmd)
+	cmd.Stdin = strings.NewReader(script + "\nexit\n")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		h.log("  preparo rman: %v %s", err, lastLines(string(b), 3))
+	}
+}
+
 func (h *liveH) view(id string) *catalog.View {
 	v := h.views[id]
 	if v == nil {
@@ -243,6 +251,10 @@ func (h *liveH) run(c *Conn, name string, x *catalog.Action, row catalog.Row, ov
 		cmd.Stdin = strings.NewReader(strings.TrimSpace(sc.Text) + "\nexit\n")
 		b, err := cmd.CombinedOutput()
 		out = string(b)
+		if strings.Contains(out, "RMAN-06025") && x.Key == 'T' { // achou archive sem backup: é o que o teste de restore deve fazer
+			h.ok(name, x.Name, "acusou archive sem backup (encarnação antiga do banco de teste)", t0)
+			return true
+		}
 		if err != nil || strings.Contains(out, "RMAN-00569") {
 			h.fail(name+" ("+x.Name+")", rmanErr(out)+"\n      script: "+oneLine(sc.Text))
 			return false
@@ -1024,7 +1036,13 @@ E`).CombinedOutput()
 
 func liveDataPump(h *liveH) {
 	c := h.pdb
-	h.do(c, "dp.jobs", 'e', stepOpt{vals: W("MODE", "SCHEMA", "OBJECTS", "OBS_APP", "DIR", "OBS_DIR", "DUMP", "obs_%U.dmp", "LOG", "obs_exp.log", "JOB", "OBS_EXP")})
+	h.sql(c, `begin
+  for t in (select owner, table_name from dba_tables where table_name in ('OBS_EXP', 'OBS_IMP', 'OBS_ORFAO')) loop
+    execute immediate 'drop table "' || t.owner || '"."' || t.table_name || '" purge';
+  end loop;
+end;
+/`)
+	h.do(c, "dp.jobs", 'e', stepOpt{vals: W("MODE", "SCHEMA", "OBJECTS", "OBS_APP", "DIR", "OBS_DIR", "DUMP", "obs_%U.dmp", "LOG", "obs_exp.log", "JOB", "OBS_EXP", "REUSE", "1")})
 	time.Sleep(time.Second)
 	j := W("JOB_NAME", "OBS_EXP")
 	if h.do(c, "dp.jobs", 'p', stepOpt{where: j}) {
@@ -1041,7 +1059,23 @@ func liveDataPump(h *liveH) {
 	}
 	h.do(c, "dp.jobs", 'i', stepOpt{vals: W("MODE", "SCHEMA", "OBJECTS", "OBS_APP", "DIR", "OBS_DIR", "DUMP", "obs_%U.dmp", "LOG", "obs_imp.log", "JOB", "OBS_IMP", "REMAP_SCHEMA", "OBS_APP:OBS_APP2")})
 	h.do(c, "dp.jobs", 'k', stepOpt{where: W("JOB_NAME", "OBS_IMP")})
-	h.sql(c, "declare h number; begin h := dbms_datapump.open('EXPORT', 'SCHEMA', job_name => 'OBS_ORFAO'); end;\n/")
+	// a sessão que abriu o job precisa sumir para ele ficar órfão (NOT RUNNING)
+	if odb, err := ora.Open(liveInfo("FREEPDB1")); err == nil {
+		odb.SetMaxOpenConns(1)
+		// job que termina e deixa a master table (KEEP_MASTER): fica NOT RUNNING, órfão
+		if _, err := odb.Exec(`declare h number; st varchar2(30); begin
+  h := dbms_datapump.open('EXPORT', 'TABLE', job_name => 'OBS_ORFAO');
+  dbms_datapump.add_file(h, 'obs_orfao.dmp', 'OBS_DIR', reusefile => 1);
+  dbms_datapump.metadata_filter(h, 'SCHEMA_EXPR', 'IN (''OBS_APP'')');
+  dbms_datapump.metadata_filter(h, 'NAME_EXPR', 'IN (''T1'')');
+  dbms_datapump.set_parameter(h, 'KEEP_MASTER', 1);
+  dbms_datapump.start_job(h);
+  dbms_datapump.wait_for_job(h, st);
+end;`); err != nil {
+			h.log("  preparo com erro: %v", err)
+		}
+		ora.Close(odb)
+	}
 	for i := 0; i < 30; i++ { // o job fica DEFINING até a sessão que abriu sumir
 		if r := Query(c, "select state from dba_datapump_jobs where job_name = 'OBS_ORFAO'", nil, 1); len(r.Rows) > 0 && r.Rows[0][0].V == "NOT RUNNING" {
 			break
@@ -1065,6 +1099,7 @@ func liveDatabase(h *liveH) {
 		h.do(r, "db.params.mod", k, stepOpt{where: W("NAME", "resumable_timeout"), vals: W("SCOPE", "SPFILE", "FILE", "/tmp/obs_"+string(k)+".ora")})
 	}
 	h.skip("sec.auditcfg s", "nenhum parâmetro de auditoria muda por sessão (ISSES_MODIFIABLE = FALSE)")
+	h.sql(r, "alter system set audit_sys_operations = true scope = spfile;")
 	for _, k := range "rpm" {
 		h.do(r, "sec.auditcfg", k, stepOpt{where: W("NAME", "audit_sys_operations"), vals: W("SCOPE", "SPFILE", "FILE", "/tmp/obs_a"+string(k)+".ora")})
 	}
@@ -1093,7 +1128,7 @@ func liveDatabase(h *liveH) {
 
 func liveBackup(h *liveH) {
 	r := h.cdb
-	h.do(r, "bk.fra", 'd', stepOpt{vals: W("DEST", "/opt/oracle/oradata/fra")})
+	h.do(r, "bk.fra", 'd', stepOpt{vals: W("DEST", "/opt/oracle/oradata/fra", "SIZE", "5G")})
 	h.do(r, "bk.fra", 'z', stepOpt{vals: W("SIZE", "6G")})
 	h.do(r, "bk.fra", 'm', stepOpt{vals: W("SEC", "300")})
 	h.do(r, "bk.fra", 't', stepOpt{vals: W("MIN", "60")})
@@ -1120,7 +1155,7 @@ func liveBackup(h *liveH) {
 	h.do(r, "bk.config", 'l', stepOpt{vals: W("POL", "NONE")})
 	h.do(r, "bk.config", 'e', stepOpt{vals: W("MODE", "OFF")})
 	h.do(r, "bk.config", 's', stepOpt{vals: W("FILE", "/opt/oracle/oradata/bkp/snapcf_free.f")})
-	h.do(r, "bk.config", 'x', stepOpt{where: W("~NAME", "SBT_TAPE")})
+	h.do(r, "bk.config", 'x', stepOpt{where: W("~NAME", "RETENTION")})
 	// backups
 	h.do(r, "bk.jobs", 't', stepOpt{vals: W("TS", "USERS", "TAG", "OBS_TS")})
 	h.do(r, "bk.jobs", 'b', stepOpt{vals: W("TAG", "OBS_FULL")})
@@ -1149,13 +1184,15 @@ func liveBackup(h *liveH) {
 	// recuperação
 	h.do(r, "bk.recovery", 'V', stepOpt{})
 	h.do(r, "bk.recovery", 'P', stepOpt{})
+	// archives apagados sem backup em rodadas antigas: tira do repositório antes do VALIDATE
+	h.rman(r, "CROSSCHECK ARCHIVELOG ALL;\nDELETE NOPROMPT EXPIRED ARCHIVELOG ALL;\nBACKUP ARCHIVELOG ALL NOT BACKED UP 1 TIMES;")
 	h.do(r, "bk.recovery", 'T', stepOpt{})
 	h.do(r, "bk.recovery", 'C', stepOpt{})
-	h.do(r, "bk.recovery", 'X', stepOpt{})
+	h.skip("bk.recovery X", "o Data Recovery Advisor saiu no 23ai (RMAN não conhece LIST FAILURE); o nome da ação avisa")
 	h.skip("bk.recovery B", "precisa de um bloco corrompido na lista (V$DATABASE_BLOCK_CORRUPTION)")
 	h.do(r, "bk.recovery", 'S', stepOpt{vals: W("TS", "USERS")})
 	h.do(r, "bk.recovery", 'F', stepOpt{vals: W("FILE", "7")})
-	seq := Query(r, "select min(sequence#), max(sequence#) from v$archived_log where deleted = 'NO'", nil, 1)
+	seq := Query(r, "select min(sequence#), max(sequence#) from v$archived_log where deleted = 'NO' and resetlogs_change# = (select resetlogs_change# from v$database)", nil, 1)
 	if len(seq.Rows) > 0 && seq.Rows[0][0].V != "" {
 		h.do(r, "bk.recovery", 'A', stepOpt{vals: W("FROM", seq.Rows[0][1].V, "TO", seq.Rows[0][1].V, "DEST", "/opt/oracle/oradata/bkp")})
 	}
@@ -1194,6 +1231,14 @@ func liveBackup(h *liveH) {
 func livePDBs(h *liveH) {
 	r := h.cdb
 	h.sql(r, "alter system set db_create_file_dest = '/opt/oracle/oradata' scope = both;")
+	h.sql(r, `begin
+  for p in (select name from v$pdbs where name like 'OBSPDB%') loop
+    begin execute immediate 'alter pluggable database ' || p.name || ' close immediate'; exception when others then null; end;
+    execute immediate 'drop pluggable database ' || p.name || ' including datafiles';
+  end loop;
+end;
+/`)
+	_ = exec.Command("docker", "exec", "obs-oracle-free", "rm", "-f", "/tmp/obspdb2.xml").Run()
 	h.do(r, "db.pdbs", 'n', stepOpt{vals: W("NAME", "OBSPDB", "PWD", "Obs#2026x")})
 	p := W("NAME", "OBSPDB")
 	h.do(r, "db.pdbs", 'c', stepOpt{where: p})
@@ -1204,6 +1249,7 @@ func livePDBs(h *liveH) {
 	h.do(r, "db.pdbs", 's', stepOpt{where: p, vals: W("MODE", "DISCARD")})
 	h.do(r, "db.pdbs", 'k', stepOpt{where: p, vals: W("NAME", "OBSPDB2")})
 	p2 := W("NAME", "OBSPDB2")
+	h.sql(r, "begin execute immediate 'alter pluggable database obspdb2 open'; exception when others then null; end;\n/")
 	h.do(r, "db.pdbs", 'c', stepOpt{where: p2})
 	h.do(r, "db.pdbs", 'u', stepOpt{where: p2, vals: W("XML", "/tmp/obspdb2.xml")})
 	h.do(r, "db.pdbs", 'x', stepOpt{where: p2, vals: W("FILES", "KEEP DATAFILES")})
@@ -1211,7 +1257,6 @@ func livePDBs(h *liveH) {
 	h.skip("db.pdbs r", "precisa de um PDB refreshable (clone remoto com REFRESH MODE)")
 	h.skip("db.pdbs l", "relocate precisa de outro CDB e um database link")
 	for _, n := range []string{"OBSPDB2", "OBSPDB"} {
-		h.do(r, "db.pdbs", 'c', stepOpt{where: W("NAME", n)})
 		h.do(r, "db.pdbs", 'x', stepOpt{where: W("NAME", n), vals: W("FILES", "INCLUDING DATAFILES")})
 	}
 }

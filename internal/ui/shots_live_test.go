@@ -83,7 +83,7 @@ func TestShotsLive(t *testing.T) {
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	load := func() {
-		for i := 0; i < 2; i++ {
+		for i := 0; i < 3; i++ {
 			db, err := ora.Open(loja)
 			if err != nil {
 				t.Fatal(err)
@@ -102,7 +102,7 @@ func TestShotsLive(t *testing.T) {
 					_ = db.QueryRow(`select sum(i.qtd * i.preco) from loja.pedidos p join loja.itens_pedido i on i.id_pedido = p.id_pedido
 					  join loja.clientes c on c.id_cliente = p.id_cliente where c.uf = :1`, []string{"SP", "RJ", "MG", "PR"}[time.Now().Second()%4]).Scan(&x)
 					_, _ = db.Exec("update loja.pedidos set status = status where id_pedido = :1", time.Now().Nanosecond()%30000+1)
-					time.Sleep(150 * time.Millisecond)
+					time.Sleep(20 * time.Millisecond)
 				}
 			}()
 		}
@@ -191,9 +191,15 @@ func TestShotsLive(t *testing.T) {
 		h.waitFor("Plan hash value", 60*time.Second)
 		shot("explain", "ORA BRABO Studio · "+L("Plano de execução", "Explain plan"))
 
-		ui(func() { w.runCurrent(true) })
+		ui(func() { w.resize(-3); w.runCurrent(true) }) // editor menor: cabe o plano inteiro
 		h.waitFor("A-Rows", 90*time.Second)
+		ui(func() {
+			if tv := w.texts["trace"]; tv != nil {
+				tv.ScrollTo(6, 0) // pula o texto do SQL e mostra o plano
+			}
+		})
 		shot("autotrace", "ORA BRABO Studio · Autotrace")
+		ui(func() { w.resize(3) })
 
 		ui(func() { h.a.openObject(c, "LOJA", "PEDIDOS", "TABLE") })
 		h.waitFor("DATA_PED", 30*time.Second)
@@ -253,7 +259,7 @@ func TestShotsLive(t *testing.T) {
 		dbaOpen(L("Banco", "Database"), "db.instance", rows)
 		shot("instance", "ORA BRABO Studio · DBA · "+L("Instância", "Instance"))
 		dbaOpen(L("Banco", "Database"), "db.topactivity", "Top Activity")
-		time.Sleep(9 * time.Second) // o gráfico enche com as amostras
+		time.Sleep(30 * time.Second) // o gráfico enche com as amostras
 		shot("topactivity", "ORA BRABO Studio · Top Activity")
 
 		// ação com a linha real do datafile da USERS

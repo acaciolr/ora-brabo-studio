@@ -326,8 +326,27 @@ func (a *App) Go(f func() func()) {
 
 // ---- diálogos ----
 
+// colModal é o fundo sólido dos diálogos (com o fundo "padrão" do terminal o
+// conteúdo de baixo apareceria através deles).
+var colModal = tcell.NewRGBColor(18, 30, 38)
+
+func solid(p tview.Primitive) {
+	switch x := p.(type) {
+	case *tview.Modal:
+		x.SetBackgroundColor(colModal)
+	case interface {
+		SetBackgroundColor(tcell.Color) *tview.Box
+	}:
+		x.SetBackgroundColor(colModal)
+	}
+	if f, ok := p.(*tview.Form); ok {
+		f.SetFieldBackgroundColor(tcell.NewRGBColor(40, 60, 70)).SetButtonBackgroundColor(tcell.NewRGBColor(40, 60, 70))
+	}
+}
+
 // Modal mostra um primitivo por cima de tudo.
 func (a *App) Modal(name string, p tview.Primitive, w, h int) {
+	solid(p)
 	grid := tview.NewGrid().SetColumns(0, w, 0).SetRows(0, h, 0).AddItem(p, 1, 1, 1, 1, 0, 0, true)
 	a.root.AddPage(name, grid, true, true)
 	a.modals++
@@ -358,6 +377,7 @@ func (a *App) Confirm(text string, yes func()) {
 				yes()
 			}
 		})
+	solid(m)
 	a.root.AddPage("confirm", m, true, true)
 	a.modals++
 	a.tv.SetFocus(m)
@@ -367,6 +387,7 @@ func (a *App) Confirm(text string, yes func()) {
 func (a *App) Alert(text string) {
 	m := tview.NewModal().SetText(text).AddButtons([]string{"OK"}).
 		SetDoneFunc(func(int, string) { a.CloseModal("alert") })
+	solid(m)
 	a.root.AddPage("alert", m, true, true)
 	a.modals++
 	a.tv.SetFocus(m)

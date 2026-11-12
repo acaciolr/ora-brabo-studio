@@ -383,6 +383,7 @@ func (g *Grid) exportDialog() {
 		file := sanitize(strings.ToLower(name)) + map[string]string{"csv": ".csv", "insert": ".sql", "json": ".json"}[ext[i]]
 		g.a.SaveFile(file, g.Export(ext[i]))
 	})
+	solid(m)
 	g.a.root.AddPage("export", m, true, true)
 	g.a.modals++
 	g.a.tv.SetFocus(m)

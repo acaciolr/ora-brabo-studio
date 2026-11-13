@@ -266,16 +266,22 @@ A aba DBA é **declarativa**: cada tela é uma consulta e uma lista de ações. 
 ### Status
 
 **Beta.** Situação de cada parte:
-- **Testado:** o motor (divisor de script, TNS, armazenamento) e o catálogo (todas as ações geram comando válido).
-- **Testado em tela simulada:** a interface, com diálogo Conectar, menus, prévia e confirmação destrutiva.
-- **Em andamento:** a validação ao vivo contra Oracle 19c e 26ai, com a worksheet completa e o `check` nas 97 telas.
+- **Testado ao vivo num Oracle 26ai (CDB + PDB):**
+  - **Worksheet:** DDL, DML, DBMS_OUTPUT, erros de compilação, DESC, plano e autotrace.
+  - **Telas DBA:** o `check` abre as 111 telas.
+  - **Ações:** o `internal/ui/live_actions_test.go` executa cada ação na linha real da tela, pelo mesmo caminho da interface (SQL, relatório, RMAN). Inclui ARCHIVELOG, backups, restore, flashback, Data Pump, AWR/ADDM, SPM, Resource Manager, Scheduler, sessões com bloqueio, kill e PDBs (clone, unplug, plug). Resultado: **mais de 430 ações ok, 0 com erro**. As que não dá para testar num banco só aparecem no fim do teste com o motivo: fita (SBT), relocate e refresh de PDB, RECOVER TABLE (pede ~1,5 GB a mais), recursos só do Enterprise Edition (o teste usa o Free) e o que o 23ai+ removeu.
+  - **Tipos de conexão:** básico (serviço e SID), SYSDBA, TNS (alias, alias com domínio, descritor), URL (EZConnect, SID, descritor, alias com TNS_ADMIN) e proxy.
+- **Testado sem banco de verdade:** túnel SSH (com servidor SSH de teste), Cloud Wallet, LDAP e Kerberos; o catálogo inteiro (todas as ações geram comando válido) e a interface em tela simulada.
+- **Ainda falta:** 19c, RAC e Data Guard ao vivo.
 
 Bugs e sugestões são bem-vindos nas *issues*.
 
 ### Roadmap
 
-- [ ] Validação ao vivo em 19c / 21c / 23ai / 26ai (single, CDB/PDB, RAC, Data Guard)
-- [ ] Prints com dados reais; binários prontos nas *Releases*
+- [x] Validação ao vivo em 26ai (CDB/PDB): worksheet, 111 telas, 430+ ações, tipos de conexão
+- [ ] Validação ao vivo em 19c / 21c, RAC e Data Guard
+- [x] Prints com dados reais
+- [ ] Binários prontos nas *Releases*
 - [ ] Realce de sintaxe na worksheet
 - [ ] Comparação de esquemas e gerador de DDL em lote
 - [ ] **MY BRABO Studio** (MySQL) e **PG BRABO Studio** (PostgreSQL), da mesma família
@@ -387,9 +393,13 @@ Configuration lives in `~/.config/ora-brabo-studio` (`ORA_BRABO_STUDIO_HOME`). U
 ### Status
 
 **Beta.**
-- **Tested:** the engine and the catalog.
-- **Tested on a simulated screen:** the UI.
-- **In progress:** live validation against 19c and 26ai.
+- **Tested live on Oracle 26ai (CDB + PDB):**
+  - **Worksheet.**
+  - **DBA screens:** all 111.
+  - **Actions:** every one runs on a real row through the same path as the UI (`internal/ui/live_actions_test.go`), including ARCHIVELOG, backups, restore, flashback, Data Pump, AWR/ADDM, SPM, Resource Manager, Scheduler, blocking sessions and PDB clone/unplug/plug. Result: **430+ actions ok, 0 errors**; the ones a single test database can't cover are listed with the reason.
+  - **Connection types:** basic (service and SID), SYSDBA, TNS, URL and proxy.
+- **Tested without a real database:** SSH tunnel (test SSH server), Cloud Wallet, LDAP, Kerberos, the full catalog and the UI.
+- **Still to do:** 19c, RAC and Data Guard live.
 
 The roadmap includes syntax highlighting, schema compare, release binaries, and the sibling tools **MY BRABO Studio** (MySQL) and **PG BRABO Studio** (PostgreSQL).
 

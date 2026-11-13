@@ -723,6 +723,12 @@ func liveSecurity(h *liveH) {
 	for _, k := range "rybz" {
 		h.do(c, "sec.users", k, stepOpt{where: u})
 	}
+	for _, k := range "Drybz" {
+		h.do(c, "sec.users.app", k, stepOpt{where: u})
+	}
+	for _, k := range "nepxqgsoX" {
+		h.skip("sec.users.app "+string(k), "mesma ação de sec.users (testada lá)")
+	}
 	h.do(c, "sec.users.app", 'l', stepOpt{where: u})
 	h.do(c, "sec.users.app", 'u', stepOpt{where: u})
 	// roles
@@ -736,7 +742,9 @@ func liveSecurity(h *liveH) {
 		h.do(c, "sec.roles", k, stepOpt{where: r})
 	}
 	// profiles
-	h.sql(c, "create profile obs_prof limit failed_login_attempts 10;")
+	h.sql(c, "begin execute immediate 'drop profile obs_prof cascade'; exception when others then null; end;\n/")
+	h.do(c, "sec.profiles", 'n', stepOpt{vals: W("NAME", "OBS_PROF", "FAILED_LOGIN_ATTEMPTS", "10", "PASSWORD_LIFE_TIME", "90")})
+	h.do(c, "sec.profiles", 'a', stepOpt{where: W("PROFILE", "OBS_PROF"), vals: W("SESSIONS_PER_USER", "20", "IDLE_TIME", "60")})
 	h.do(c, "sec.profiles", 'e', stepOpt{where: W("PROFILE", "OBS_PROF", "RESOURCE_NAME", "FAILED_LOGIN_ATTEMPTS"), vals: W("VALUE", "5")})
 	h.do(c, "sec.profiles", 'u', stepOpt{where: W("PROFILE", "OBS_PROF")})
 	h.do(c, "sec.profiles", 'X', stepOpt{where: W("PROFILE", "OBS_PROF")})
@@ -923,6 +931,14 @@ func liveMonitor(h *liveH) {
 	dbD, sidD := sess()
 	busy(dbD)
 	h.do(c, "mo.active", 'd', by(sidD))
+	dbI, sidI := sess()
+	busy(dbI)
+	h.do(c, "mo.sessions", 'c', by(sidI))
+	busy(dbI)
+	h.do(c, "mo.allsessions", 'c', by(sidI))
+	h.do(c, "mo.allsessions", 't', by(sidI))
+	h.do(c, "mo.allsessions", 'u', by(sidI))
+	h.do(c, "mo.allsessions", 'd', by(sidI))
 	_, sidE := sess()
 	h.do(c, "mo.sessions", 'd', by(sidE))
 	_, sidF := sess()
@@ -943,9 +959,12 @@ func liveMonitor(h *liveH) {
 	if id := Query(c, "select sql_id from v$sqlstats where sql_text like 'select /*+ monitor */ /* obs_topsql */%'", nil, 1); len(id.Rows) > 0 {
 		ts = W("SQL_ID", id.Rows[0][0].V)
 	}
-	for _, k := range "sphmb" {
+	for _, k := range "sphm" {
 		h.do(c, "mo.topsql", k, stepOpt{where: ts})
 	}
+	// em banco movimentado o cursor sai do top 100 rápido: roda de novo antes do baseline
+	h.sql(c, "select /*+ monitor */ /* obs_topsql */ count(*) from obs_app.t1 a, obs_app.t1 b, (select level from dual connect by level <= 300) where a.n = b.n;")
+	h.do(c, "mo.topsql", 'b', stepOpt{where: ts})
 	h.do(c, "mo.topsql", 't', stepOpt{where: map[string]string{}, vals: W("SEC", "30")})
 	// depois do baseline e do Tuning Advisor o cursor original some do top 100;
 	// o PURGE vale para qualquer cursor: usa o primeiro
@@ -1042,7 +1061,7 @@ func liveDataPump(h *liveH) {
   end loop;
 end;
 /`)
-	h.do(c, "dp.jobs", 'e', stepOpt{vals: W("MODE", "SCHEMA", "OBJECTS", "OBS_APP", "DIR", "OBS_DIR", "DUMP", "obs_%U.dmp", "LOG", "obs_exp.log", "JOB", "OBS_EXP", "REUSE", "1")})
+	h.do(c, "dp.jobs", 'e', stepOpt{vals: W("MODE", "SCHEMA", "OBJECTS", "OBS_APP,LOJA", "DIR", "OBS_DIR", "DUMP", "obs_%U.dmp", "LOG", "obs_exp.log", "JOB", "OBS_EXP", "REUSE", "1")})
 	time.Sleep(time.Second)
 	j := W("JOB_NAME", "OBS_EXP")
 	if h.do(c, "dp.jobs", 'p', stepOpt{where: j}) {
@@ -1057,7 +1076,7 @@ end;
 		}
 		time.Sleep(2 * time.Second)
 	}
-	h.do(c, "dp.jobs", 'i', stepOpt{vals: W("MODE", "SCHEMA", "OBJECTS", "OBS_APP", "DIR", "OBS_DIR", "DUMP", "obs_%U.dmp", "LOG", "obs_imp.log", "JOB", "OBS_IMP", "REMAP_SCHEMA", "OBS_APP:OBS_APP2")})
+	h.do(c, "dp.jobs", 'i', stepOpt{vals: W("MODE", "SCHEMA", "OBJECTS", "OBS_APP", "DIR", "OBS_DIR", "DUMP", "obs_%U.dmp", "LOG", "obs_imp.log", "JOB", "OBS_IMP", "REUSE", "1", "REMAP_SCHEMA", "OBS_APP:OBS_APP2")})
 	h.do(c, "dp.jobs", 'k', stepOpt{where: W("JOB_NAME", "OBS_IMP")})
 	// a sessão que abriu o job precisa sumir para ele ficar órfão (NOT RUNNING)
 	if odb, err := ora.Open(liveInfo("FREEPDB1")); err == nil {
@@ -1083,6 +1102,8 @@ end;`); err != nil {
 		time.Sleep(2 * time.Second)
 	}
 	h.do(c, "dp.jobs", 'x', stepOpt{where: W("JOB_NAME", "OBS_ORFAO")})
+	h.sql(c, "create or replace directory obs_dir2 as '/opt/oracle/oradata/dp';")
+	h.do(c, "st.directories", 'x', stepOpt{where: W("DIRECTORY_NAME", "OBS_DIR2")})
 }
 
 func liveDatabase(h *liveH) {
@@ -1139,6 +1160,15 @@ func liveBackup(h *liveH) {
 		r = h.cdb
 	}
 	h.skip("db.database A", "mesma ação de bk.fra A (testada lá)")
+	h.sql(h.pdb, "create smallfile tablespace obs_tsf datafile '"+dfDir+"obs_tsf01.dbf' size 10m;")
+	if h.do(h.pdb, "st.datafiles", 'f', stepOpt{where: W("FILE_NAME", "~obs_tsf01")}) {
+		id := Query(h.pdb, "select file_id from dba_data_files where file_name like '%obs_tsf01%'", nil, 1)
+		if len(id.Rows) > 0 {
+			h.rman(r, "RECOVER DATAFILE "+id.Rows[0][0].V+";")
+		}
+		h.do(h.pdb, "st.datafiles", 'o', stepOpt{where: W("FILE_NAME", "~obs_tsf01")})
+	}
+	h.sql(h.pdb, "drop tablespace obs_tsf including contents and datafiles;")
 	h.do(r, "bk.fra", 'b', stepOpt{vals: W("MODE", "ON")})
 	h.do(r, "db.database", 'f', stepOpt{vals: W("MODE", "OFF")})
 	h.do(r, "db.database", 'f', stepOpt{vals: W("MODE", "ON")})

@@ -108,7 +108,34 @@ func TestShotsLive(t *testing.T) {
 		}
 	}
 	load()
-	defer func() { close(stop); wg.Wait() }()
+	// um bloqueio de verdade para a tela de bloqueios: A segura a linha, B espera
+	blkA, err := ora.Open(loja)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txA, err := blkA.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := txA.Exec("update loja.pedidos set status = 'EM ROTA' where id_pedido = 1"); err != nil {
+		t.Fatal(err)
+	}
+	blkB, err := ora.Open(loja)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = blkB.Exec("update loja.pedidos set status = 'ENTREGUE' where id_pedido = 1")
+	}()
+	defer func() {
+		_ = txA.Rollback() // solta o B antes do wg.Wait
+		close(stop)
+		wg.Wait()
+		ora.Close(blkA)
+		ora.Close(blkB)
+	}()
 
 	for _, lang := range []string{"pt", "en"} {
 		h := startLang(t, lang == "en")
@@ -261,6 +288,24 @@ func TestShotsLive(t *testing.T) {
 		dbaOpen(L("Banco", "Database"), "db.topactivity", "Top Activity")
 		time.Sleep(30 * time.Second) // o gráfico enche com as amostras
 		shot("topactivity", "ORA BRABO Studio · Top Activity")
+		dbaOpen(L("Banco", "Database"), "db.panel", L("Memória", "Memory"))
+		time.Sleep(6 * time.Second) // segunda amostra: taxas por segundo
+		shot("panel", "ORA BRABO Studio · DBA · "+L("Painel da instância", "Instance viewer"))
+		dbaOpen(L("Monitoramento", "Monitoring"), "mo.blockers", rows)
+		shot("blockers", "ORA BRABO Studio · DBA · "+L("Bloqueios", "Blocking"))
+		dbaOpen(L("Monitoramento", "Monitoring"), "mo.alert", rows)
+		shot("alert", "ORA BRABO Studio · DBA · Alert log")
+		dbaOpen(L("Segurança", "Security"), "sec.users", rows)
+		shot("users", "ORA BRABO Studio · DBA · "+L("Usuários", "Users"))
+		dbaOpen("Backup", "bk.sets", rows)
+		shot("backups", "ORA BRABO Studio · DBA · RMAN")
+		c.packOK["diag"] = true // o aviso de licença já foi aceito (lab)
+		dbaOpen("Performance", "pf.snaps", rows)
+		shot("awr", "ORA BRABO Studio · DBA · AWR")
+		dbaOpen("Resource Manager", "rm.plans", rows)
+		shot("rsrc", "ORA BRABO Studio · DBA · Resource Manager")
+		dbaOpen("Scheduler", "sc.jobs", rows)
+		shot("scheduler", "ORA BRABO Studio · DBA · Scheduler")
 
 		// ação com a linha real do datafile da USERS
 		var x *catalog.Action
@@ -305,7 +350,7 @@ func TestShotsLive(t *testing.T) {
 			}
 		})
 		h.stop()
-		renderShots(t, dir, lang, shots, "help", "action-form", "instance")
+		renderShots(t, dir, lang, shots, "help", "action-form", "instance", "alert", "users", "rsrc", "scheduler")
 	}
 	i18n.EN = false
 }

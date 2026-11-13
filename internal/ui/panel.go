@@ -128,6 +128,15 @@ const panelLoad = `select
   (select round(value/1048576, 1) from v$sysmetric where metric_name = 'Redo Generated Per Sec' and group_id = 2) redo_mb
  from dual`
 
+// loadSQL: dentro de um PDB a V$SYSMETRIC vem vazia; as métricas do
+// container ficam na V$CON_SYSMETRIC (12.2+, só o grupo de 60 s, sem CPU do host).
+func loadSQL(c *Conn) string {
+	if !c.CDB || c.ConName == "" || c.ConName == "CDB$ROOT" {
+		return panelLoad
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(panelLoad, " and group_id = 2", ""), "v$sysmetric", "v$con_sysmetric")
+}
+
 const panelTS = `select * from (select tablespace_name, round(used_percent, 1) pct, round(tablespace_size * (select value from v$parameter where name = 'db_block_size') / 1073741824, 1) gb
   from dba_tablespace_usage_metrics order by used_percent desc) where rownum <= 8`
 
@@ -148,7 +157,7 @@ func (p *InstancePanel) load() {
 	c := p.c
 	p.a.Go(func() func() {
 		inst := Query(c, panelInst, nil, 1)
-		ld := Query(c, panelLoad, nil, 1)
+		ld := Query(c, loadSQL(c), nil, 1)
 		ts := Query(c, panelTS, nil, 10)
 		ws := Query(c, panelWaits, nil, 10)
 		fra := Query(c, panelFRA, nil, 1)
